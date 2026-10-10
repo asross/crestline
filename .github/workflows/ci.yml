@@ -33,3 +33,10 @@ jobs:
           cmake --build build-cpp --parallel 4 --target highs-bin
       - run: cargo build --release --bin crest --features "libstdcxx no_fma"
       - run: HIGHS_DIR=$PWD/highs-cpp bash bench/quick_check.sh build-cpp/bin/highs target/release/crest
+      # The build for AWS Lambda (AVX2): Rust never contracts multiply-adds,
+      # so x86-64-v3 must take the same paths
+      - name: crest for x86-64-v3 against the C++ app
+        run: |
+          RUSTFLAGS="-C llvm-args=-unroll-runtime=false -C target-cpu=x86-64-v3" \
+            cargo build --release --bin crest --features "libstdcxx no_fma"
+          HIGHS_DIR=$PWD/highs-cpp bash bench/quick_check.sh build-cpp/bin/highs target/release/crest

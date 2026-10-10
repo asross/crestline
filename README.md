@@ -8,7 +8,15 @@ It was built to solve power system dispatch problems: MIPs that are not amenable
 
     cargo build --release
 
-The `crest` binary lands in `target/release/crest`. It is all Rust (no C++
+The `crest` binary lands in `target/release/crest`. For x86_64 machines
+with AVX2 (AWS Lambda, most servers since 2015), building for x86-64-v3
+is about 3.5% faster and takes the same paths (Rust never fuses
+multiply-adds on its own):
+
+    RUSTFLAGS="-C llvm-args=-unroll-runtime=false -C target-cpu=x86-64-v3" cargo build --release
+
+(`RUSTFLAGS` replaces the flags of `.cargo/config.toml`, so they are
+repeated.) It is all Rust (no C++
 compiler needed); its only crates.io dependency is flate2 (pure-Rust
 miniz_oxide backend) for gzip-compressed model files.
 

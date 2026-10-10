@@ -7,7 +7,7 @@ minimum cycles (`/usr/bin/time -l`), checks that the two solves report the
 same path (iterations, nodes, objective, status) and prints a Markdown table
 for docs/performance.md. Cycles, not wall time: the machine is shared.
 """
-import argparse, math, os, re, subprocess, tempfile
+import argparse, math, os, re, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(os.environ["HIGHS_DIR"])
@@ -53,12 +53,21 @@ def run(binary, inst, opts):
         f.write("threads = 1\nrandom_seed = 0\n")
         f.writelines(f"{k} = {v}\n" for k, v in opts.items())
     try:
-        r = subprocess.run(["/usr/bin/time", "-l", binary, "--options_file", f.name, str(inst)],
-                           capture_output=True, text=True)
+        if sys.platform == "darwin":
+            r = subprocess.run(["/usr/bin/time", "-l", binary, "--options_file", f.name, str(inst)],
+                               capture_output=True, text=True)
+            cost = int(re.search(r"(\d+)\s+cycles elapsed", r.stderr).group(1))
+        else:
+            # no cycle counts without perf: CPU time (user + system), in ns
+            p = subprocess.Popen([binary, "--options_file", f.name, str(inst)],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            out = p.stdout.read()
+            _, _, ru = os.wait4(p.pid, 0)
+            r = subprocess.CompletedProcess(p.args, 0, out, "")
+            cost = int((ru.ru_utime + ru.ru_stime) * 1e9)
     finally:
         os.unlink(f.name)
-    cyc = int(re.search(r"(\d+)\s+cycles elapsed", r.stderr).group(1))
-    return "\n".join(PATH_RE.findall(r.stdout)), cyc
+    return "\n".join(PATH_RE.findall(r.stdout)), cost
 
 def main():
     ap = argparse.ArgumentParser()
