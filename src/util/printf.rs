@@ -56,6 +56,9 @@ macro_rules! sprintf {
     };
 }
 
+/// The C library whose printf this follows (sign of NaN)
+const GLIBC: bool = cfg!(target_env = "gnu");
+
 #[derive(Default)]
 struct Spec {
     left: bool,
@@ -146,7 +149,7 @@ pub fn sprintf(fmt: &str, args: &[Arg]) -> String {
                     Arg::I(v) => v as f64,
                     Arg::S(_) => 0.0,
                 };
-                let neg = v.is_sign_negative() && !(v.is_nan());
+                let neg = v.is_sign_negative() && (GLIBC || !v.is_nan());
                 let upper = conv.is_ascii_uppercase();
                 let body = if v.is_nan() {
                     "nan".to_string()
@@ -162,8 +165,8 @@ pub fn sprintf(fmt: &str, args: &[Arg]) -> String {
                 };
                 let finite = v.is_finite();
                 let body = if upper { body.to_ascii_uppercase() } else { body };
-                // The C library gives NaN no sign
-                let sign = if v.is_nan() { String::new() } else { sign_of(neg, &s) };
+                // Apple's libc gives NaN no sign, glibc signs it like a number
+                let sign = if v.is_nan() && !GLIBC { String::new() } else { sign_of(neg, &s) };
                 (sign, body, finite)
             }
             // A mismatched argument: format it plainly
@@ -311,6 +314,7 @@ mod tests {
             let e = ((seed >> 3) % 40) as i32 - 20;
             vals.push((m - 0.5) * 10f64.powi(e));
         }
+        let mut bad = Vec::new();
         for f in fmts {
             // glibc's %#g drops the trailing zeros when rounding carries
             // (999999.5 -> "1.e+06"); HiGHS never formats with '#'
@@ -318,9 +322,13 @@ mod tests {
                 continue;
             }
             for &v in &vals {
-                assert_eq!(sprintf(f, &[Arg::F(v)]), c_f(f, v), "format {f} value {v:e}");
+                let (a, b) = (sprintf(f, &[Arg::F(v)]), c_f(f, v));
+                if a != b {
+                    bad.push(format!("format {f} value {v:e}: {a:?} != libc {b:?}"));
+                }
             }
         }
+        assert!(bad.is_empty(), "{bad:#?}");
     }
 
     #[test]
