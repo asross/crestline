@@ -853,6 +853,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_root_lp_devex",
+        description: "Whether the dual simplex solves the MIP's first root LP, if it has at least 20000 rows (and no basis, and IPX does not race it), with Devex pricing rather than dual steepest edge; later LP solves use simplex_dual_edge_weight_strategy",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,

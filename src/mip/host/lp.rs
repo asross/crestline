@@ -644,6 +644,18 @@ impl LpS {
                     "Root LP: %s won the race on two threads\n",
                     if ipx_won { "IPX" } else { "the dual simplex" }
                 );
+            } else if o.mip_root_lp_devex && !valid_basis && !ms.submip && self.num_rows() >= 20000 {
+                // Devex for a large first root LP: cheaper per iteration
+                // than DSE where B^-1 is dense (dispatch models). From
+                // 20000 rows, as the MIP's LPs get no exact DSE weights
+                // (simplex_dse_exact_init_max_rows) anyway
+                let strategy = match self.lph().opts.get("simplex_dual_edge_weight_strategy") {
+                    Some(OptValue::Int(v)) => v,
+                    _ => -1,
+                };
+                self.set_option("simplex_dual_edge_weight_strategy", OptValue::Int(1));
+                callstatus = self.lph().optimize_lp();
+                self.set_option("simplex_dual_edge_weight_strategy", OptValue::Int(strategy));
             } else {
                 callstatus = self.lph().optimize_lp();
             }
