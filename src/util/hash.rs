@@ -209,7 +209,11 @@ pub fn vector_hash(data: &[u8]) -> u64 {
         }
         for (i, bytes) in chunk.chunks(8).enumerate() {
             let n = num_pairs - i;
-            pair[..bytes.len()].copy_from_slice(bytes);
+            // (a whole pair as one 8-byte move, not a memmove call)
+            match <[u8; 8]>::try_from(bytes) {
+                Ok(whole) => pair = whole,
+                Err(_) => pair[..bytes.len()].copy_from_slice(bytes),
+            }
             let (a, b) = split_pair(&pair);
             chunkhash[n & 1] = chunkhash[n & 1].wrapping_add(pair_hash_k(32 - n, a, b));
         }

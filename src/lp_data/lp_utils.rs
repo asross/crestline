@@ -1326,15 +1326,16 @@ fn matrix_scale(lp: &CLp, apply: bool) {
     let a = arrays(lp);
     let colwise = lp.a.format == matrix_format::COLWISE;
     let num_vec = if colwise { lp.a.num_col } else { lp.a.num_row } as usize;
+    // The scale of the vector, and of its entries (x * y == y * x)
+    let (outer, inner) = if colwise { (&*a.scale_col, &*a.scale_row) } else { (&*a.scale_row, &*a.scale_col) };
     for v in 0..num_vec {
-        for k in a.start[v] as usize..a.start[v + 1] as usize {
-            let o = a.index[k] as usize;
-            let (c, r) = if colwise { (v, o) } else { (o, v) };
-            if apply {
-                a.value[k] *= a.scale_col[c] * a.scale_row[r];
-            } else {
-                a.value[k] /= a.scale_col[c] * a.scale_row[r];
-            }
+        let (from, to) = (a.start[v] as usize, a.start[v + 1] as usize);
+        let s = outer[v];
+        let entries = a.value[from..to].iter_mut().zip(&a.index[from..to]);
+        if apply {
+            entries.for_each(|(x, &i)| *x *= s * inner[i as usize]);
+        } else {
+            entries.for_each(|(x, &i)| *x /= s * inner[i as usize]);
         }
     }
 }

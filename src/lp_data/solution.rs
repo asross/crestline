@@ -1042,17 +1042,8 @@ fn lp_basic_infeasibilities(model_status: &mut i32, info: &mut Info, lp: &LpRef,
     let (mut num_primal, mut num_dual, mut num_semi) = (0, 0, 0);
     let (mut max_primal, mut sum_primal, mut max_dual, mut sum_dual) = (0.0, 0.0, 0.0, 0.0);
     let (mut max_semi, mut sum_semi) = (0.0, 0.0);
-    let n = lp.num_col;
-    for i in 0..n + lp.num_row {
-        let is_col = i < n;
-        let (lower, upper) = lp.bounds(i);
-        let value = sol.value(n, i);
-        let mut dual = 0.0;
-        if have_dual {
-            dual = sol.dual(n, i);
-        }
-        dual *= lp.sense;
-        let integrality = if is_col && have_integrality { lp.integrality[i] } else { var_type::CONTINUOUS };
+    let mut visit = |lower: f64, upper: f64, value: f64, dual: f64, integrality: u8| {
+        let dual = dual * lp.sense;
         let v = get_variable_kkt_failures(primal_tol, o.mip_feasibility_tolerance, lower, upper, value, dual, integrality);
         if v.primal_infeasibility > 0.0 {
             if v.primal_infeasibility > primal_tol {
@@ -1073,6 +1064,20 @@ fn lp_basic_infeasibilities(model_status: &mut i32, info: &mut Info, lp: &LpRef,
             max_dual = cmax(v.dual_infeasibility, max_dual);
             sum_dual += v.dual_infeasibility;
         }
+    };
+    // Columns, then rows: one loop each, without a branch per entry on
+    // its kind
+    let (n, m) = (lp.num_col, lp.num_row);
+    let (col_lower, col_upper, col_value) = (&lp.col_lower[..n], &lp.col_upper[..n], &sol.col_value[..n]);
+    for i in 0..n {
+        let integrality = if have_integrality { lp.integrality[i] } else { var_type::CONTINUOUS };
+        let dual = if have_dual { sol.col_dual[i] } else { 0.0 };
+        visit(col_lower[i], col_upper[i], col_value[i], dual, integrality);
+    }
+    let (row_lower, row_upper, row_value) = (&lp.row_lower[..m], &lp.row_upper[..m], &sol.row_value[..m]);
+    for i in 0..m {
+        let dual = if have_dual { sol.row_dual[i] } else { 0.0 };
+        visit(row_lower[i], row_upper[i], row_value[i], dual, var_type::CONTINUOUS);
     }
     info.num_primal_infeasibilities = num_primal;
     info.max_primal_infeasibility = max_primal;
