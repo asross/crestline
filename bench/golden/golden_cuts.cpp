@@ -1,8 +1,8 @@
 // Checksum of the orders that pdqsort, pdqsort_branchless, std::partial_sort,
 // std::partition and std::priority_queue give pairs with many equal keys;
-// rust/src/mip/cuts/tests.rs (sorts_match_cpp) computes the same with the
+// src/mip/cuts/tests.rs (sorts_match_cpp) computes the same with the
 // Rust ports. Build from the repository root:
-//   clang++ -O2 -std=c++17 -Ihighs -Ibuild-cpp rust/src/mip/cuts/golden_cuts.cpp
+//   clang++ -O2 -std=c++17 -Ihighs -Ibuild-cpp <crestline>/bench/golden/golden_cuts.cpp
 #include <algorithm>
 #include <cstdio>
 #include <queue>

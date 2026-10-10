@@ -1,10 +1,10 @@
 [package]
-name = "highs-rs"
+name = "crestline"
 version = "0.1.0"
 edition = "2021"
-
-[lib]
-crate-type = ["staticlib", "rlib"]
+license = "MIT"
+description = "MIP/LP solver in Rust, derived from HiGHS"
+repository = "https://github.com/asross/crestline"
 
 # The crest command line (the highs app's), all Rust: cargo build --release
 # --bin crest (no C++ compiler, no libhighs)
@@ -26,9 +26,7 @@ libstdcxx = []
 # Never fuse multiply-adds, like a C++ build without FMA instructions or
 # with -ffp-contract=off (default on x86_64)
 no_fma = []
-# crest's Rust Highs object, its model file reading (gzip) and the crest
-# binary; the CMake build of libhighs builds the library without it
-# (--no-default-features): there the Highs object is the C++ one
+# The Rust Highs object, its model file reading (gzip) and the crest binary
 crest = ["dep:flate2"]
 
 [profile.release]

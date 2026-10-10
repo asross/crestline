@@ -356,7 +356,7 @@ mod tests {
         assert!(!increasing_set_ok_double(&[1.0, 1.0], 0.0, 2.0, true));
     }
 
-    /// The checksum of golden_sort.cpp (ties in all the heap sorts)
+    /// The checksum of bench/golden/golden_sort.cpp (ties in all the heap sorts)
     #[test]
     fn golden() {
         let mut h: u64 = 1469598103934665603;

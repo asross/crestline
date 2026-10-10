@@ -1,16 +1,16 @@
-"""Compare a pure C++ HiGHS build with a HIGHS_RUST build.
+"""Compare the C++ HiGHS app with crest.
 
-  python3 rust/bench/perf.py CPP_HIGHS RUST_HIGHS [--reps N] [--miplib DIR]
+  HIGHS_DIR=<HiGHS checkout> python3 bench/perf.py CPP_HIGHS CREST [--reps N] [--miplib DIR]
 
 Runs each case alternately with both binaries (single thread), takes the
 minimum cycles (`/usr/bin/time -l`), checks that the two solves report the
 same path (iterations, nodes, objective, status) and prints a Markdown table
-for rust/PERFORMANCE.md. Cycles, not wall time: the machine is shared.
+for docs/performance.md. Cycles, not wall time: the machine is shared.
 """
 import argparse, math, os, re, subprocess, tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ["HIGHS_DIR"])
 CHECK = ROOT / "check" / "instances"
 DISPATCH = Path(os.environ.get("DISPATCH_DIR", ROOT / "dispatch_milp_2026_09_30"))
 

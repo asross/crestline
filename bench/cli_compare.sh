@@ -1,32 +1,29 @@
 #!/bin/bash
-# Runs the highs app of a pure C++ and a HIGHS_RUST build (and, given a
-# third argument, the Rust crest binary: a build with bin/crest, or the
-# binary itself, e.g. rust/target/release/crest of cargo) on the command lines
-# of cli_cases.txt ($I: check/instances, $C: check), each in a fresh
+# Runs the C++ HiGHS app and crest on the command lines of cli_cases.txt
+# ($I: check/instances, $C: check of a HiGHS checkout), each in a fresh
 # directory, and diffs stdout, stderr, exit code and written files against
 # the C++ app, with times and the program path masked. A case marked
-# `# dropped: ...` uses a feature Crestline leaves out (HiPO, debugging):
-# it is expected to differ, and is counted apart.
-#   rust/bench/cli_compare.sh [CPP_BUILD] [RUST_BUILD] [CREST_BUILD]
-cd "$(dirname "$0")/../.."
-ROOT=$PWD
-# A path as given if absolute, else under the repository root
-ab() { case $1 in /*) echo "$1";; *) echo "$ROOT/$1";; esac; }
-CPP=$(ab "${1:-build-cpp}"); RS=$(ab "${2:-build-rs}")
-BINS=("$CPP/bin/highs" "$RS/bin/highs")
-if [ -n "$3" ]; then
-  if [ -f "$3" ]; then BINS+=("$(ab "$3")"); else BINS+=("$(ab "$3")/bin/crest"); fi
-fi
+# `# dropped: ...` uses a feature Crestline leaves out (HiPO, debugging),
+# one marked `# differs: ...` prints Crestline's own text: they are
+# expected to differ, and are counted apart.
+#   HIGHS_DIR=<HiGHS checkout> bench/cli_compare.sh HIGHS_BIN CREST_BIN...
+# Exit status 0 iff no unexpected difference.
+ab() { case $1 in /*) echo "$1";; *) echo "$PWD/$1";; esac; }
+CASES=$(ab "$(dirname "$0")")/cli_cases.txt
+ROOT=$(ab "${HIGHS_DIR:?set HIGHS_DIR to a HiGHS checkout}")
+BINS=()
+for b in "$@"; do BINS+=("$(ab "$b")"); done
+CPP=${BINS[0]}
 I=$ROOT/check/instances; C=$ROOT/check
 OUT=$(mktemp -d)
 mask() { sed -E '/^Strange: /d; s/[0-9]+(\.[0-9]+)?(e[-+][0-9]+)?s( |$)/Ts\3/g; s/(run time *: *).*/\1T/; s/(git hash: |Githash )[0-9a-f]+/\1H/; /[Tt]ime|Timing|^Thread |sub-solver|integral|^ +[0-9.]+ \(|%\)|Sub-MIP|simplex \(|IPX \(|Total|TOTAL|^MIP  /{ s/[0-9][0-9.e+-]*/N/g; s/ +/ /g; }'; }
 # $F: solution and basis files to read, written by the C++ app
 F=$OUT/files; mkdir -p "$F"
 (cd "$F"
- "$CPP/bin/highs" --solution_file adl.sol --write_basis_file adl.bas --presolve off "$I/adlittle.mps" > /dev/null
- "$CPP/bin/highs" --solution_file egout.sol "$I/egout.mps" > /dev/null
+ "$CPP" --solution_file adl.sol --write_basis_file adl.bas --presolve off "$I/adlittle.mps" > /dev/null
+ "$CPP" --solution_file egout.sol "$I/egout.mps" > /dev/null
  printf 'write_solution_style = 4\n' > sparse.set
- "$CPP/bin/highs" --options_file sparse.set --solution_file adl_sparse.sol "$I/adlittle.mps" > /dev/null
+ "$CPP" --options_file sparse.set --solution_file adl_sparse.sol "$I/adlittle.mps" > /dev/null
  { echo "=obj= 1"; sed -n '/^# Columns/,/^# Rows/p' adl.sol | sed '1d;$d' | head -20; } > adl_miplib.sol
  { echo "=obj= 1"; echo "NOSUCHCOL 3"; } > bad_miplib.sol
  head -12 adl.sol > adl_short.sol
@@ -60,13 +57,14 @@ while IFS= read -r line || [ -n "$line" ]; do
     (cd "$d" && eval "set -- $line" && "$b" "$@" > stdout 2> stderr; echo $? > exit)
     for f in "$d"/*; do mask < "$f" | sed "s|$b|HIGHS|g" > "$f.m"; mv "$f.m" "$f"; done
     if [ "$k" -gt 0 ] && ! diff -r "$OUT/$n/0" "$d" > "$OUT/$n.$k.diff"; then
-      if [[ $line == *"# dropped"* ]]; then
+      if [[ $line == *"# dropped"* || $line == *"# differs"* ]]; then
         dropped=$((dropped+1)); echo "EXPECTED [$n] $b: $line"
       else
         fail=$((fail+1)); echo "DIFF [$n] $b: $line"; head -20 "$OUT/$n.$k.diff"
       fi
     fi
   done
-done < rust/bench/cli_cases.txt
+done < "$CASES"
 echo "cli: $n command lines x $((${#BINS[@]} - 1)), $fail differ, $dropped dropped-feature cases differ as expected"
 if [ -n "$KEEP" ]; then echo "$OUT"; else rm -rf "$OUT"; fi
+[ $fail = 0 ]

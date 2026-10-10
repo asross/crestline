@@ -1,7 +1,7 @@
-//! crest: the highs app's command line (rust/src/lp_data/app.rs) on the
-//! Rust Highs object (rust/src/lp_data/highs.rs); all Rust.
-use highs_rs::lp_data::app::app_main;
-use highs_rs::lp_data::lp_handle::highs::{app_create, app_destroy};
+//! crest: the highs app's command line (src/lp_data/app.rs) on the
+//! Rust Highs object (src/lp_data/highs.rs); all Rust.
+use crestline::lp_data::app::app_main;
+use crestline::lp_data::lp_handle::highs::{app_create, app_destroy};
 use std::os::unix::ffi::OsStrExt;
 
 fn main() {

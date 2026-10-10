@@ -2,7 +2,7 @@
 //! PresolveComponent's data is Rust's ([`PresolveData`]: the reduced LP an
 //! [`Lp`], the postsolve stack's storage a [`PostsolveStack`] in the
 //! layout presolve/postsolve.rs reads, the recovered solution and basis),
-//! and the presolve (rust/src/presolve/hpresolve) runs with a host whose
+//! and the presolve (src/presolve/hpresolve) runs with a host whose
 //! model and stack callbacks are here. The option values, the timer and
 //! the factorization of the dependent equations are reached through the
 //! run's steps. At the end of the run the reduced LP, stack, status and

@@ -1,9 +1,9 @@
 // Checksums of the hash helpers, HighsHashTable, HighsHashTree,
 // HighsSparseVectorSum, HSet and HighsDisjointSets over random operation
 // sequences, mixing in results and iteration orders; the Rust tests in
-// rust/src/util/tests.rs compute the same and compare. From the repo root:
+// src/util/tests.rs compute the same and compare. From the repo root:
 //   clang++ -O3 -std=c++11 -Ihighs -I<build dir with HConfig.h> \
-//     rust/src/util/golden2.cpp highs/util/HighsHash.cpp highs/util/HSet.cpp \
+//     <crestline>/bench/golden/golden2.cpp highs/util/HighsHash.cpp highs/util/HSet.cpp \
 //     -o golden2 && ./golden2
 // (HighsInt 32 bits; libc++, whose std::tuple stores members in order.)
 #include <array>

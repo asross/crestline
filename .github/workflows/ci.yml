@@ -1,0 +1,35 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release
+      - run: cargo build --release --bin crest
+
+  # crest against the C++ highs app of a pinned HiGHS commit (gcc, no FMA
+  # contraction): outputs must match (bench/quick_check.sh)
+  oracle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: asross/HiGHS
+          ref: 9b1bb74466f6ee7c353a877f7a6cb907f2e686f9
+          path: highs-cpp
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the C++ highs app
+        run: |
+          cmake -S highs-cpp -B build-cpp -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_C_FLAGS=-ffp-contract=off -DCMAKE_CXX_FLAGS=-ffp-contract=off \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
+          cmake --build build-cpp --parallel 4 --target highs-bin
+      - run: cargo build --release --bin crest --features "libstdcxx no_fma"
+      - run: HIGHS_DIR=$PWD/highs-cpp bash bench/quick_check.sh build-cpp/bin/highs target/release/crest

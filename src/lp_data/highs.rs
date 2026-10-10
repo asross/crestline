@@ -47,15 +47,18 @@ pub const GITHASH: &str = env!("CREST_GITHASH");
 pub const COPYRIGHT: &str = "Copyright (c) 2026 under MIT licence terms";
 /// HighsExternalApi::thirdPartyNoticeHeader
 pub const NOTICE_HEADER: &str = "Includes third-party software components, see THIRD_PARTY_NOTICES.md for full details";
-/// The app's getThirdPartyNotice<HighsExtras::appAll> (kept as the C++
-/// app prints it)
+/// The app's third-party notice (--version, --notice): the HiGHS app's
+/// table, listing what crest ports or links (THIRD_PARTY_NOTICES.md)
 pub const APP_NOTICE: &str = "Third-party components:\n\n\
-key      name     version      license     \n\
--------  -------  -----------  ------------\n\
-cli11    CLI11    2.5.0        BSD-3-Clause\n\
-pdqsort  pdqsort  git:b1ef26a  Zlib        \n\
-zlib     ZLIB     1.2.12       Zlib        \n\
-zstr     zstr     1.0.6        MIT         ";
+key           name          version      license                   \n\
+------------  ------------  -----------  --------------------------\n\
+pdqsort       pdqsort       git:b1ef26a  Zlib                      \n\
+flate2        flate2        1.1.10       MIT OR Apache-2.0         \n\
+miniz_oxide   miniz_oxide   0.9.1        MIT OR Zlib OR Apache-2.0 \n\
+adler2        adler2        2.0.1        0BSD OR MIT OR Apache-2.0 \n\
+simd-adler32  simd-adler32  0.3.10       MIT                       \n\
+crc32fast     crc32fast     1.5.2        MIT OR Apache-2.0         \n\
+cfg-if        cfg-if        1.0.5        MIT OR Apache-2.0         ";
 /// CLI11_VERSION (options_cli.rs parses as CLI11 2.5.0)
 pub const CLI11_VERSION: &str = "2.5.0";
 

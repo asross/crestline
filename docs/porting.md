@@ -1,5 +1,11 @@
 # Porting HiGHS to Rust
 
+_The development record of the port, kept as it was written inside the
+HiGHS C++ tree (paths updated). The C++ build options it mentions
+(`-DHIGHS_RUST=ON`, the C++/Rust comparison scripts) belong to that tree;
+in this repository the crate is `crestline` and the comparison scripts are
+bench/cli_compare.sh and bench/quick_check.sh._
+
 The Rust port will become **Crestline**: its own public repository
 (github.com/asross/crestline, crate `crestline`, CLI `crest`) once the
 command-line binary is pure Rust. Extraction plan: `git filter-repo
@@ -8,7 +14,7 @@ CI test oracle for bit-identical paths; MIT licence with the HiGHS
 copyright notice and attribution kept; README states it is a Rust port of
 HiGHS, bit-compatible with HiGHS v1.15. Until then development continues
 on the `rust-port` branch here. The binary is already `crest`, all Rust,
-built by cargo alone (`cd rust && cargo build --release --bin crest`; see
+built by cargo alone (`cargo build --release --bin crest`; see
 "The app and crest"); the crate keeps its name `highs-rs` (staticlib
 `highs_rs`, which CMake links) until the extraction renames it.
 
@@ -47,12 +53,12 @@ file readers in parallel. IPX, PDLP and QP last.
 
 Checks cost: run the cheap ones per change, the expensive ones per batch.
 
-- **Every change (~3 min):** build, then `rust/bench/quick_check.sh
+- **Every change (~3 min):** build, then `bench/quick_check.sh
   <C++ build> <Rust build> [<crest binary>]`: cargo test, LP logs on 12
   instances (presolve on/off), 9 MIPs at 200 nodes, api_compare,
-  cli_compare; given the cargo-built crest (rust/target/release/crest),
+  cli_compare; given the cargo-built crest (target/release/crest),
   the same solves with it plus the .lp and .gz models. Exit status 0
-  iff all match, so `git bisect run rust/bench/quick_check.sh ...` finds
+  iff all match, so `git bisect run bench/quick_check.sh ...` finds
   the commit that broke a path.
 - **Every batch of a few commits:** the full MIP log comparison at 100
   nodes (not 300; skip markshare_4_0, 50v-10; cygnet and supportcase10
@@ -102,7 +108,7 @@ Checks cost: run the cheap ones per change, the expensive ones per batch.
   `x.mul_add_c(a, b)` (util/fma.rs): `mul_add` on aarch64, `x * a + b`
   elsewhere. A test rejects raw `mul_add`. Check x86_64 paths with
   `-DCMAKE_OSX_ARCHITECTURES=x86_64 -DHIGHS_RUST_TARGET=x86_64-apple-darwin`
-  builds under Rosetta (`rust/bench/perf.py` on both).
+  builds under Rosetta (`bench/perf.py` on both).
 - **gcc / libstdc++.** Production builds the C++ with gcc, whose libstdc++
   differs from libc++ where results depend on the standard library: heap
   and partial_sort tie orders, std::tuple layout (hashed keys),
@@ -122,16 +128,16 @@ Checks cost: run the cheap ones per change, the expensive ones per batch.
   crashes on gcc 14 objects. Instances: ~/code/miplib/plain/*.mps.
 - **Safe Rust by default.** Slices, not raw pointers, outside the `extern "C"`
   shims; every pointer crosses the FFI with its length. `unsafe` only with a
-  measured win and a comment saying why it is sound. `rust/.cargo/config.toml`
+  measured win and a comment saying why it is sound. `.cargo/config.toml`
   turns off LLVM's runtime loop unrolling, which slows the short sparse
   loops that clang leaves rolled.
 - **C++ switch.** `HIGHS_RUST` is defined in `HConfig.h`, so every
   translation unit sees the same class layouts.
-- **HEkk's data** is Rust's: an `LpSolver` (rust/src/simplex/lp_solver.rs,
+- **HEkk's data** is Rust's: an `LpSolver` (src/simplex/lp_solver.rs,
   see "The simplex engine's data") inside an `LpHandle` (the MIP's LP
   solvers, and the engine a `Highs` object owns), with the LP being
   solved (a Rust copy). The kernels work on `EkkView`s
-  (rust/src/simplex/ekk.rs) that LpSolver builds from its fields and its
+  (src/simplex/ekk.rs) that LpSolver builds from its fields and its
   LP. There is no C++ HEkk under HIGHS_RUST.
 - **Rust owns ported state.** A ported class keeps its C++ header as a thin
   wrapper around an opaque Rust handle until its callers are ported.
@@ -180,7 +186,7 @@ wrapper.
 
 ## PDLP (cuPDLP-C)
 
-rust/src/pdlp ports the CPU cuPDLP-C (highs/pdlp/cupdlp) and the glue of
+src/pdlp ports the CPU cuPDLP-C (highs/pdlp/cupdlp) and the glue of
 CupdlpWrapper.cpp: building the cuPDLP-C LP, scaling, the PDHG iterations,
 the hot start and the unscaled solution. With HIGHS_RUST the C sources are
 not built and highs/pdlp/CupdlpWrapperRs.cpp reads the options, calls
@@ -192,7 +198,7 @@ the C reads ax past its end when ncols > nrows.
 
 ## The QP solver
 
-QUASS (highs/qpsolver/) runs in Rust (rust/src/qp), and so does its glue
+QUASS (highs/qpsolver/) runs in Rust (src/qp), and so does its glue
 (qp/glue.rs): Highs::callSolveQp up to the objective and KKT check (the
 Hessian dimension check, the Instance with triangularToSquareHessian's
 square Hessian, negated for a maximization, the Settings from the options
@@ -214,7 +220,7 @@ cholesky.rs models the vector's capacity to follow it.
 
 ## Cut separation (MIP)
 
-rust/src/mip/cuts ports HighsTransformedLp, HighsLpAggregator,
+src/mip/cuts ports HighsTransformedLp, HighsLpAggregator,
 HighsCutGeneration, the path, tableau and mod-k separators and
 HighsGFkSolve. With HIGHS_RUST, HighsTransformedLp's constructor (a
 separation round, HighsSeparation::separationRound) builds a Rust
@@ -290,7 +296,7 @@ saved INVERT of putIterate/getIterate are held by the Rust factor.
 ## The simplex engine's data (LpSolver)
 
 Everything HEkk owned but its LP is Rust's: `LpSolver`
-(rust/src/simplex/lp_solver.rs) holds the status flags, HighsSimplexInfo
+(src/simplex/lp_solver.rs) holds the status flags, HighsSimplexInfo
 (work, base and random vectors, the backtracking basis, densities,
 counters, perturbation and cleanup state), the simplex basis, the edge
 weights (with the saved weights carried over LP edits), the row-wise
@@ -310,7 +316,7 @@ negative scale factor), the undualized basis, initialiseSimplexLpBasisAndFactor
 the NLA solves (FTRAN/BTRAN with the basis matrix scaling of the NLA's LP),
 put/getIterate, computeBasisCondition and proofOfPrimalInfeasibility.
 
-LpSolver owns the LP being solved (`lp`, an `Lp` of rust/src/lp_data/
+LpSolver owns the LP being solved (`lp`, an `Lp` of src/lp_data/
 lp.rs: dimensions, costs, bounds, the column-wise matrix, sense, offset,
 integrality, scaling, the model name). moveLp copies the C++ LP into it
 (`Lp::import`; the vectors keep their capacity, so a re-solve allocates
@@ -528,7 +534,7 @@ crest" for what this leaves in a `crest` binary.
 
 ## The LP solver of the MIP (LpHandle)
 
-The MIP's LP solves run on `LpHandle`s (rust/src/lp_data/lp_handle.rs), a
+The MIP's LP solves run on `LpHandle`s (src/lp_data/lp_handle.rs), a
 Rust LP solver with what the `Highs` object held for an LP: the option
 values (`Opts`, below), the model LP (an `Lp`), the simplex engine
 (`LpSolver`, with the run's solution, basis, info, model status and LP
@@ -573,7 +579,7 @@ them, so the latter takes the live array (not a copy); and a dive's LP copy
 is HighsLpRelaxation's copy constructor (passOptions, passModel of the
 other's model, setBasis of its basis), not a clone of the engine.
 
-The option values (rust/src/lp_data/opts.rs) are a typed Rust copy of
+The option values (src/lp_data/opts.rs) are a typed Rust copy of
 HighsOptions: one field per record, named as the option, in the records'
 order (`NAMES`), with HighsOptions' defaults (a unit test checks them
 against a C++ HighsOptions: TestOptions.cpp rust-option-defaults), set by
@@ -718,7 +724,7 @@ through the handles).
 
 ## Presolve (HPresolve)
 
-HPresolve runs in Rust (rust/src/presolve/hpresolve) for LP and MIP
+HPresolve runs in Rust (src/presolve/hpresolve) for LP and MIP
 presolve and the MIP restarts; HPresolve.cpp is compiled only without
 HIGHS_RUST. The MIP presolve's host and stack are Rust's
 (mip/host/presolve.rs, a Rust `PostsolveStack`); HPresolveRust.cpp keeps
@@ -758,7 +764,7 @@ row read it live while nested reductions store other rows).
 
 ## Postsolve
 
-The undo side of HighsPostsolveStack runs in Rust (rust/src/presolve/
+The undo side of HighsPostsolveStack runs in Rust (src/presolve/
 postsolve.rs): undo, undoPrimal, undoUntil, getReducedPrimalSolution,
 compressIndexMaps and DuplicateColumn::okMerge. HPresolve (C++) still
 records the reductions through the inline templates of the header, so the
@@ -776,7 +782,7 @@ products in plain double are `x - a*d` of ForcingRow, `x + s*y` and
 ## Symmetry detection (HighsSymmetry)
 
 HighsSymmetryDetection, HighsSymmetries, the orbitopes and the stabilizer
-orbits run in Rust (rust/src/presolve/symmetry.rs); under HIGHS_RUST the
+orbits run in Rust (src/presolve/symmetry.rs); under HIGHS_RUST the
 C++ classes hold a handle (HighsSymmetry.cpp, symmetry_ffi.rs) and
 StabilizerOrbits keeps its three vectors, copied from Rust, for HighsSearch.
 The detection task runs on the task scheduler (a C++ lambda): Rust polls
@@ -967,7 +973,7 @@ and separation statistics, generator, the heuristics flag, the buffered
 solutions); HighsMipWorker owns it, refers to its fields in place
 (RsState) and keeps the pointers to the C++ objects it works on.
 
-## The MIP's objects (rust/src/mip/host)
+## The MIP's objects (src/mip/host)
 
 Under HIGHS_RUST no C++ of highs/mip is compiled but mip/HighsMipHost.cpp
 (the Highs object's side), and the MIP presolve, its restarts and the
@@ -975,7 +981,7 @@ postsolve of its solutions are Rust only. The object shells the sections
 above call "C++" (the callbacks of `CMipFns`, `CLpFns`, `CSearchFns`,
 `CSepaFns`, the domain's, clique table's, implications', reduced cost
 fixing's, separators' and presolve's hosts) are Rust objects in
-rust/src/mip/host, which implement those tables in the order the C++
+src/mip/host, which implement those tables in the order the C++
 made the same steps:
 
 - solver.rs: `MipSolver` (HighsMipSolver: options as `Opts`, the model
@@ -1022,7 +1028,7 @@ folding them into direct calls is a refactor without behaviour change.
 ## The task scheduler (highs/parallel)
 
 The executor, the split deques, the sleeping workers' stack, the binary
-semaphore and the spin waits are Rust (rust/src/parallel), with the C++'s
+semaphore and the spin waits are Rust (src/parallel), with the C++'s
 memory orderings, spin and sleep thresholds and random victim choice.
 A task slot has HighsTask's layout (56 bytes of callable, the stealer
 word); the callable is a Rust closure (`spawn_on`, `sync_on`,
@@ -1045,7 +1051,7 @@ HighsMutex, HighsCombinable and HighsRaceTimer are C++-build only.
 The `Highs` class and its data (HighsLp, HighsSolution, HighsBasis,
 HighsInfo, HighsOptions) stay C++ objects, the mirrors of the engine's
 data since stage 4b (see "The simplex engine's data"): the public API,
-highspy and the C API hand out references to them. rust/src/lp_data works on views
+highspy and the C API hand out references to them. src/lp_data works on views
 (highs/lp_data/HighsRust.h: `RsMut` arrays, `RsLp`, `RsIndexCollection`;
 HighsInfoStruct and HighsPrimalDualErrors are read and written in place,
 layouts checked by static_assert and a Rust test) and logs through
@@ -1086,7 +1092,7 @@ this build). sscanf's %d, atoi and atof are
 mirrored (strtol saturated to 64 bits, truncated to 32). The one
 difference: a non-numeric value for an integer option logs (at
 log_dev_level > 0) the conversion's result as 0 where the C++ prints
-sscanf's uninitialised variables. `rust/bench/options_compare.sh` builds
+sscanf's uninitialised variables. `bench/options_compare.sh` builds
 options_driver.cpp against both libraries and diffs its output and files;
 `cli_compare.sh` diffs the app on the command lines of cli_cases.txt
 (stdout, stderr, exit code, written files; times masked).
@@ -1305,16 +1311,16 @@ exit as the C++ did. Under HIGHS_RUST app/RunHighs.cpp's main is one call of
 `highs_app_main`; the CLI11 code of RunHighs.cpp and HighsRuntimeOptions.h
 is compiled only without HIGHS_RUST.
 
-`crest` (rust/src/bin/crest.rs) is the Rust binary, all Rust: **cargo
+`crest` (src/bin/crest.rs) is the Rust binary, all Rust: **cargo
 alone builds it**, with no C/C++ compiler and no libhighs:
 
-    cd rust && cargo build --release --bin crest   # -> target/release/crest
+    cargo build --release --bin crest   # -> target/release/crest
 
 It links Rust's std and libc only (`otool -L`: libSystem; on Linux libc,
 libm, libgcc_s), and its one crate from crates.io is flate2 (with its
 default pure-Rust miniz_oxide backend) for gzip model files. Its main
 calls the crate's `app_main` (app.rs, shared with the C++ app) on a Rust
-`AppHost` (`app_create` of rust/src/lp_data/highs.rs, the module
+`AppHost` (`app_create` of src/lp_data/highs.rs, the module
 `lp_data::lp_handle::highs`): no C++ `Highs` is in its path. Output is the
 C++ app's, byte for byte, but for argv[0] in the usage line; the
 third-party notice is the C++ app's text (it lists CLI11, whose behaviour
@@ -1322,14 +1328,14 @@ options_cli.rs reproduces, and zlib/zstr, whose detection crest
 reproduces with flate2; the Crestline extraction should list flate2 and
 miniz_oxide instead) and the log line "Command line parsed using CLI11"
 is kept. The git hash of the header and --version is `git describe
---always` at build time (rust/build.rs; "n/a" outside a checkout).
+--always` at build time (build.rs; "n/a" outside a checkout).
 
 Cargo features: `crest` (default) is the Rust Highs object, the model file
 reading (flate2) and the crest binary; the CMake HIGHS_RUST build builds
 the library with `--no-default-features` (its Highs object is the C++ one,
 unchanged), and `cmake --build <dir> --target crest` (opt-in, not ALL)
 runs the cargo build above into bin/crest (own target dir rust-crest/,
-the features `crest` and HIGHS_RUST_FEATURES). rust/build.rs links
+the features `crest` and HIGHS_RUST_FEATURES). build.rs links
 nothing.
 
 The Rust Highs object (highs.rs) is what the C++ `Highs` was for the
@@ -1374,7 +1380,7 @@ app's steps, on its engine (`LpHandle` on a host that is this object):
   `change_cols_integrality_interval`), names, the elastic solution.
 - The option records' metadata (option_records.rs: names, types,
   descriptions, bounds and defaults of the 162 records) are generated from
-  a C++ HighsOptions by rust/bench/gen_option_records.cpp (rerun it if
+  a C++ HighsOptions by bench/gen_option_records.cpp (rerun it if
   HighsOptions.h changes; a test checks them against `Opts`); the options
   API (options.rs) works on tables built from them over an `Opts`.
 
@@ -1388,8 +1394,8 @@ host for the user callbacks (HighsMipHost.cpp), the C++ scheduler entry
 points and the glue listed below (C++ still compiled). None of it is in
 crest's path.
 
-Comparisons: `rust/bench/cli_compare.sh build build-rust
-rust/target/release/crest` (the third argument a build with bin/crest or
+Comparisons: `bench/cli_compare.sh build build-rust
+target/release/crest` (the third argument a build with bin/crest or
 the binary itself; builds may be absolute paths) runs the C++ app, the
 HIGHS_RUST app and crest on 166 command lines (solution, basis, sparse
 and MIPLIB-style files to read, gzip and empty model files are made first;
@@ -1398,7 +1404,7 @@ presolved-model and IIS cases). Six use what the HIGHS_RUST build leaves
 out (--solver hipo, a HiPO options file, the dev.set of
 highs_debug_level = 1, the fixed-format MPS reader) and are marked
 `# dropped` in cli_cases.txt: they differ as expected and are counted
-apart. `rust/bench/quick_check.sh build build-rust rust/target/release/crest`
+apart. `bench/quick_check.sh build build-rust target/release/crest`
 also compares crest's solves (the LPs with presolve on and off, the MIPs
 at 200 nodes, and every check/instances/*.lp and two .gz models with the
 whole log).
@@ -1453,7 +1459,7 @@ constraints) are under `#ifndef HIGHS_RUST`.
 
 ## C++ still compiled
 
-`rust/bench/cpp_inventory.py build-rust` lists every C++ source compiled
+`bench/cpp_inventory.py build-rust` lists every C++ source compiled
 into a HIGHS_RUST libhighs (the unity batches expanded) and the app, with
 its code lines (no blank or comment lines) in the pure C++ build and under
 HIGHS_RUST (unifdef). Kinds: "glue" is Rust-call glue, "part ported" has
@@ -1475,7 +1481,7 @@ CupdlpWrapperRs.cpp and the dead glue deleted) took it from 12610 lines
 2025 -> 1432, HighsInterface.cpp 924 -> 823, HighsLpUtilsRust.cpp 543 ->
 362, HighsMipHost.cpp 371 -> 221, HPresolveRust.cpp 333 -> 1, QpRust.cpp
 163 -> 0, HighsPostsolveStack.cpp and PresolveComponent.cpp to their
-mirrors. The MIP's objects in Rust (rust/src/mip/host) and the C++ task
+mirrors. The MIP's objects in Rust (src/mip/host) and the C++ task
 templates' removal took it from 19014 lines in 98 files to 12911 in 66.
 Stage 4b's first round (the engine's model the store of the LP data;
 callCrossover, the MIP presolve's dependent equations, the
@@ -1566,9 +1572,9 @@ files.
 | highs/util/HighsHash.cpp | 2 | 2 | C++ | live: utilities |
 | highs/util/HighsMatrixPic.cpp | 131 | 131 | C++ | debug only (matrix pictures) |
 | highs/util/HighsMatrixUtils.cpp | 319 | 33 | part ported | live: utilities |
-| highs/util/HighsSort.cpp | 323 | 74 | part ported | glue: the sorts are Rust (rust/src/util/sort.rs) |
+| highs/util/HighsSort.cpp | 323 | 74 | part ported | glue: the sorts are Rust (src/util/sort.rs) |
 | highs/util/HighsSparseMatrix.cpp | 1492 | 429 | part ported | glue: HighsSparseMatrix over sparse.rs; live: assess, sparse productTransposeQuad |
 | highs/util/HighsUtils.cpp | 1132 | 353 | part ported | live: index collections, value analysis logs, user data checks |
 | highs/util/stringutil.cpp | 54 | 8 | part ported | live: utilities |
-| app/RunHighs.cpp | 95 | 3 | part ported | main: calls the Rust app (rust/src/lp_data/app.rs) |
+| app/RunHighs.cpp | 95 | 3 | part ported | main: calls the Rust app (src/lp_data/app.rs) |
 | **total** (64 files) | 33439 | 10881 | | |

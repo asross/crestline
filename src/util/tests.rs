@@ -1,6 +1,6 @@
 //! Bit-identity with the C++: checksums produced by the same sequence of
-//! operations in golden.cpp (clang++ -O3 -std=c++11 -Ihighs -Ibuild) and
-//! golden2.cpp (build command in its header).
+//! operations in bench/golden/golden.cpp (clang++ -O3 -std=c++11 -Ihighs -Ibuild) and
+//! bench/golden/golden2.cpp (build command in its header).
 
 use super::cdouble::CDouble;
 use super::disjoint_sets::HighsDisjointSets;

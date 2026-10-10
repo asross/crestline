@@ -1,4 +1,4 @@
-//! Checks of the sorting algorithms against libc++/pdqsort (golden_cuts.cpp
+//! Checks of the sorting algorithms against libc++/pdqsort (bench/golden/golden_cuts.cpp
 //! prints the same checksums) and of GFkSolve on a small system.
 
 use super::sort::*;
@@ -48,11 +48,11 @@ fn sorts_match_cpp() {
             q.pop();
         }
     }
-    // golden_cuts.cpp
+    // bench/golden/golden_cuts.cpp
     assert_eq!(h, GOLDEN_SORTS);
 }
 
-// golden_cuts.cpp built with clang++ (libc++) / g++ (libstdc++)
+// bench/golden/golden_cuts.cpp built with clang++ (libc++) / g++ (libstdc++)
 #[cfg(not(feature = "libstdcxx"))]
 const GOLDEN_SORTS: u64 = 9754718482623447556;
 #[cfg(feature = "libstdcxx")]

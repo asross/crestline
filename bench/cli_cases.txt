@@ -7,7 +7,7 @@
 -hv
 -v
 --version
---notice
+--notice # differs: crest lists its own third-party components
 --version=false $I/afiro.mps
 --version=abc $I/afiro.mps
 --version= $I/afiro.mps
@@ -104,7 +104,7 @@ $I/qptestnw.lp
 --=x $I/afiro.mps
 ---x
 --version=0x0 $I/afiro.mps
---notice=99999999999999999999 $I/afiro.mps
+--notice=99999999999999999999 $I/afiro.mps # differs: crest lists its own third-party components
 --notice=-99999999999999999999 $I/afiro.mps
 -v -v
 --version=yes

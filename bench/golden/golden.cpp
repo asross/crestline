@@ -1,5 +1,5 @@
 // Checksums of HighsRandom draws and HighsCDouble operations; the Rust test
-// rust/src/util/tests.rs computes the same and compares.
+// src/util/tests.rs computes the same and compares.
 #include <cmath>
 #include <cstdio>
 #include <cstring>

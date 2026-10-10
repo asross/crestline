@@ -1,6 +1,6 @@
 //! The option records' metadata (HighsOptions.h: names, types, descriptions,
 //! bounds and defaults), generated from a C++ HighsOptions by
-//! rust/bench/gen_option_records.cpp; a test checks the defaults against
+//! bench/gen_option_records.cpp; a test checks the defaults against
 //! `Opts`. Crest's options API works on these (the C++ builds use their own
 //! records).
 
