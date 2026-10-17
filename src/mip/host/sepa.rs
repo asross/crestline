@@ -120,6 +120,14 @@ impl SepaS {
                                 d.sc.total_lp_iterations - d.sc.heuristic_lp_iterations,
                             );
                         }
+                        // the Gomory cut history of the branching score
+                        let obs = std::mem::take(&mut (*r).gmi_obs);
+                        let ps = &mut *w.get_pseudocost().rs;
+                        if ps.gmi_weight != 0.0 {
+                            for (c, e) in obs {
+                                ps.add_gmi_observation(c, e);
+                            }
+                        }
                     }
                     1 => cf::highs_rs_path_separate(self.path, r, seed),
                     _ => cf::highs_rs_modk_separate(r, seed),

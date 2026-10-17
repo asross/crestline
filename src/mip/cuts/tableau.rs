@@ -15,6 +15,8 @@ struct FractionalInteger {
     row_ep_norm2: f64,
     score: f64,
     basis_index: i32,
+    /// the basic structural column, or -1 for a slack
+    col: i32,
     /// row_ep: a range of TableauSeparator::row_ep
     ep_start: usize,
     ep_len: usize,
@@ -98,6 +100,7 @@ impl TableauSeparator {
                 row_ep_norm2: 0.0,
                 score: -1.0,
                 basis_index: i as i32,
+                col: if b < num_col { b as i32 } else { -1 },
                 ep_start: 0,
                 ep_len: 0,
             });
@@ -223,6 +226,8 @@ impl TableauSeparator {
                 }
             }
             let mut rhs = 0.0;
+            let cuts_before = lp.num_cuts();
+            lp.max_cut_efficacy = 0.0;
             cutgen.generate_cut(lp, &mut self.base_row_inds, &mut self.base_row_vals, &mut rhs, false);
             if lp.dom_infeasible() {
                 break;
@@ -234,6 +239,9 @@ impl TableauSeparator {
                 break;
             }
             lp.aggr_clear();
+            if fv.col >= 0 && lp.num_cuts() != cuts_before {
+                lp.gmi_obs.push((fv.col, lp.max_cut_efficacy));
+            }
             if best_score == -1.0 && lp.num_cuts() != num_cuts {
                 best_score = fv.score;
             }

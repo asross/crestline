@@ -134,7 +134,7 @@ $I/qptestnw.lp
 --options_file iis2.set $I/forest6.mps
 --options_file iis.set $I/klein1.mps
 --options_file iis2.set $I/avgas.mps
---options_file iis.set $I/infeasible-mip0.mps
+--options_file iis.set $I/infeasible-mip0.mps # differs: mip_branching_gmi_weight (crest default 1e-4)
 $F/afiro.mps.gz
 $F/qptestnw.lp.gz
 --presolve off $F/afiro.mps.gz
@@ -157,7 +157,7 @@ $F/empty.mps
 --ranging on --solution_file - $I/afiro.mps
 --write_basis_file - $I/afiro.mps
 --options_file improving.set $I/egout.mps
---options_file improving2.set $I/bell5.mps
+--options_file improving2.set $I/bell5.mps # differs: mip_branching_gmi_weight (crest default 1e-4)
 --options_file improving.set $I/semi-continuous.lp
 --options_file image.set $I/afiro.mps
 --options_file presolved_lp.set $I/egout.mps

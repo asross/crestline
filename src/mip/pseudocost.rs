@@ -56,6 +56,14 @@ pub struct Pseudocost {
     delta_ninferencestotal: i64,
     pub minreliable: i32,
     pub degeneracy_factor: f64,
+    /// Gomory cut history (Turner et al., arXiv:2306.06050): per column the
+    /// mean efficacy of the tableau cuts from its row, the totals, and the
+    /// weight of the term in the branching score (0: no term, as HiGHS)
+    pub gmi_eff: Vec<f64>,
+    pub gmi_n: Vec<i32>,
+    pub gmi_eff_total: f64,
+    pub gmi_n_total: i64,
+    pub gmi_weight: f64,
 }
 
 /// 1 - 1 / (1 + score)
@@ -110,6 +118,8 @@ impl Pseudocost {
             deltas: Vec::with_capacity(n.min(256)),
             conflict_weight: 1.0,
             minreliable,
+            gmi_eff: vec![0.0; n],
+            gmi_n: vec![0; n],
             degeneracy_factor: 1.0,
             ..Default::default()
         }
@@ -319,8 +329,24 @@ impl Pseudocost {
         let conflict_avg = self.conflict_score_avg();
         let conflict_score = max2(conflict_up, t) * max2(conflict_down, t) / max2(t, conflict_avg * conflict_avg);
         let f = self.degeneracy_factor;
-        let inner = 1e-2f64.mul_add_c(map_score(conflict_score), 1e-4 * (map_score(cutoff_score) + map_score(inference_score)));
+        let mut inner = 1e-2f64.mul_add_c(map_score(conflict_score), 1e-4 * (map_score(cutoff_score) + map_score(inference_score)));
+        if self.gmi_weight != 0.0 && self.gmi_n_total > 0 && self.gmi_n[c] > 0 {
+            let avg = self.gmi_eff_total / self.gmi_n_total as f64;
+            inner += self.gmi_weight * map_score(self.gmi_eff[c] / max2(t, avg));
+        }
         f.mul_add_c(inner, map_score(cost_score) / f)
+    }
+
+    /// A tableau cut of efficacy `eff` from the row of column `col`
+    pub fn add_gmi_observation(&mut self, col: i32, eff: f64) {
+        let c = col as usize;
+        if c >= self.gmi_n.len() {
+            return;
+        }
+        self.gmi_n[c] += 1;
+        self.gmi_eff[c] += (eff - self.gmi_eff[c]) / self.gmi_n[c] as f64;
+        self.gmi_eff_total += eff;
+        self.gmi_n_total += 1;
     }
 
     pub fn get_score(&self, col: i32, frac: f64) -> f64 {

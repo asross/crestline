@@ -177,6 +177,8 @@ impl PscostS {
     pub fn new(ms: &MipSolver) -> PscostS {
         let ncol = ms.num_col();
         let rs = psf::highs_rs_pscost_new(ncol, ms.opts.mip_pscost_minreliable);
+        // SAFETY: just created
+        unsafe { (*rs).gmi_weight = ms.opts.mip_branching_gmi_weight };
         if !ms.pscostinit.is_null() {
             let st = &ms.d().postsolve_stack;
             let orig: Vec<i32> = (0..ncol as usize).map(|i| st.orig_col_index[i]).collect();

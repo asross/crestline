@@ -901,6 +901,16 @@ pub const RECORDS: &[Meta] = &[
         str_default: "",
     },
     Meta {
+        type_: DOUBLE,
+        advanced: false,
+        name: "mip_branching_gmi_weight",
+        description: "Weight in the branching score of the mean efficacy of the Gomory cuts from a column's tableau row (0: no such term, as HiGHS)",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0001, f64::INFINITY),
+        str_default: "",
+    },
+    Meta {
         type_: BOOL,
         advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
