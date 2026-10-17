@@ -831,7 +831,7 @@ impl Heur {
     /// randomizedRounding): a fresh relaxation of the model at the local
     /// bounds, with presolve when few columns are left, else from the
     /// first root basis
-    pub(crate) fn rounding_lp(m: &MipData, w: &Worker, localdom: &Dom, use_presolve: bool, origin: &[u8]) -> (Lp, i32) {
+    fn rounding_lp(m: &MipData, w: &Worker, localdom: &Dom, use_presolve: bool, origin: &[u8]) -> (Lp, i32) {
         let lprelax = Lp::new(m, w);
         lprelax.set_iteration_limit(10000i64.max(2 * m.firstrootlpiters()) as i32);
         lprelax.change_cols_bounds_dom(localdom);
@@ -1252,7 +1252,6 @@ pub mod ffi {
             5 => h.central_rounding(m, &w),
             6 => h.randomized_rounding(m, &w, &x),
             7 => h.shifting(m, &w, &x),
-            9 => h.fpr(m, &w, &x),
             _ => h.zi_round(m, &w, &x),
         }
     }

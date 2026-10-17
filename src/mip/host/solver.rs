@@ -416,7 +416,6 @@ impl MipSolver {
                 mip_root_lp_ipx: o.mip_root_lp_ipx,
                 mip_root_lp_effort_from_basis: o.mip_root_lp_effort_from_basis,
                 mip_graph_lns_deep_early: o.mip_graph_lns_deep_early,
-                run_fpr: o.mip_heuristic_run_fpr,
             },
             helper_pool: self.concurrent_lns,
             lns_target: self.lns_target_reached,

@@ -316,6 +316,56 @@ perturbation), so the bandit can only pay for exploring the perturbed
 arm. A run has about 30-50 deep moves, too few for the arms to
 separate. Two threads were not run.
 
+## Time-ordered fix-propagate-repair (rejected, 2026-10-17)
+
+Salvagnin, Roberti and Fischetti (MPC 2025) fix the integers one at a
+time with propagation, backtracking and a WalkSAT repair. Spoorendonk
+(arXiv:2609.22938) ported FPR, Feasibility Jump, LocalMIP and Scylla into
+HiGHS 1.15.1. Their FPR found the first solution on 16 of 233 MIPFEAS
+instances and the best at 600 s on 2. Scylla and the LP-guided FPR dive
+never gave an accepted incumbent in full runs, so they ship disabled.
+Crestline's pinned HiGHS has Feasibility Jump only. Graph LNS's root dive
+is already an LP-guided fix-and-propagate dive, so it was not redone.
+LocalMIP and WalkSAT-style repair were left out: their single-variable
+moves are what the equality chains defeat. What was tried
+(`mip_heuristic_run_fpr`, removed) is the LP-free kernel in its
+depth-first mode:
+- after randomized rounding at the first root LP, fix the integer
+  columns in time order (the BFS levels of a pseudo-peripheral column,
+  from the matrix, not names), so that propagation runs the chains
+  forward like a simulation;
+- fix each to the rounded LP value (lock-roundable ones the safe way);
+- if propagation rules a fixing out, try the other value, else flip the
+  latest decision with an untried alternative (at most 2n + 100
+  fixings);
+- an LP then sets the continuous columns.
+
+Local probe (M1, seed 0, the 25 dispatch models): all integers fixed on
+12. The final LP is feasible on 7 (the 4 small models among them, and the
+3 lambda ticks). On the 5 ramp/medium models where every integer was
+fixed, the LP is infeasible: bound propagation over the ramp and state of
+charge rows misses what the LP sees. On the other 13, the budget ran out
+backtracking. Where it succeeds, graph LNS beats its point within a
+second (3c1b60d6: FPR 3.49% at 6.1 s, the graph LNS dive 2.17% at 6.5 s).
+On MIPLIB's unit commitment models it succeeds on uccase9 (32897,
+against 29842 from randomized rounding) and fails on irish-electricity,
+unitcal_7 and buildingenergy.
+
+Runners, one thread, 16 seeds, 180 s, against main (2fd8779):
+
+| | x86_64 | arm64 |
+|---|---|---|
+| solved models, time (geometric mean) | 1.041 | 1.045 |
+| intervals above 1 (of 24) | 22 | 23 |
+| ... the small models | 1.17-1.31 | 1.18-1.31 |
+| runs solved (of 400) | 371 -> 370 | 372 -> 372 |
+| `hard_10-03` gap at 180 s / mean primal gap | +0.001 ± 0.003 / +0.004 ± 0.024 | +0.008 ± 0.013 / +0.042 ± 0.030 |
+| `diverse_10-01` gap / mean primal gap | +0.001 ± 0.003 / +0.141 ± 0.031 | -0.001 ± 0.001 / +0.188 ± 0.022 |
+
+The paths after it are the same (the gaps at 180 s do not change). What
+it adds is its own time, before graph LNS starts. Two threads were not
+run.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -340,3 +390,4 @@ separate. Two threads were not run.
   dispatch models.
 - Time-window neighbourhoods, free or pinned (see above).
 - A bandit over the LNS LPs' cost perturbation (see above).
+- Time-ordered fix-propagate with backtracking at the root (see above).

@@ -911,7 +911,6 @@ unsafe fn root_op(ms: &mut MipSolver, which: i32, w: P, i: i64, x: f64) -> f64 {
                     heur(ms, w, 6, Some(&s))
                 }
                 13 => graph_lns(ms, w, &fl, true, x as i64),
-                14 => heur(ms, w, 9, Some(&fl)),
                 _ => {
                     let s = d.get_lp().col_value().to_vec();
                     heur(ms, w, 7, Some(&s))

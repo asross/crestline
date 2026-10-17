@@ -103,8 +103,6 @@ pub mod heur {
     /// the deep graph LNS search from the first LP solution, with an LP
     /// iteration budget (the op's value; negative: the usual one)
     pub const GRAPH_LNS_DEEP_FIRST: i64 = 13;
-    /// time-ordered fix-propagate with backtracking (mip_heuristic_run_fpr)
-    pub const FPR_FIRST: i64 = 14;
 }
 
 /// The profiling clocks (indices of HighsPrimalHeuristics.cpp's
@@ -342,9 +340,6 @@ impl MipData {
             self.start(clk::RANDOMIZED_ROUNDING);
             self.heur(w, heur::RANDOMIZED_ROUNDING_FIRST);
             self.stop(clk::RANDOMIZED_ROUNDING);
-            if o.run_fpr {
-                self.heur(w, heur::FPR_FIRST);
-            }
             if o.run_shifting {
                 self.heur(w, heur::SHIFTING_FIRST);
             }
