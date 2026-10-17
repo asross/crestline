@@ -978,7 +978,9 @@ the basis is near-optimal). irish-electricity: Optimal after 47 more
 iterations, objective 2546254.5632 (dual simplex alone: 2546254.5633), max
 primal infeasibility 8.8e-8. Only that failure takes the new path, so every
 solve that ended otherwise is unchanged (the CI oracle matches the C++
-app). Rejected: accepting such a solution as optimal at a relative
+app but for one IIS command line: on klein1 an LP of HiGHS's elasticity
+filter ends Unknown, so HiGHS reports a reducible IIS; crest now finds an
+irreducible one of 50 rows, marked as an expected difference). Rejected: accepting such a solution as optimal at a relative
 tolerance (the residuals are absolute, and 300x the tolerance); the primal
 simplex with its forced phase 2 (above).
 
