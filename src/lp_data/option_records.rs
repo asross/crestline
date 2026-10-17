@@ -903,6 +903,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_heuristic_run_fpr",
+        description: "Whether a fix-and-propagate heuristic with backtracking runs after the first root LP: the integer columns are fixed in time order (the levels of a breadth-first search over the variable/constraint graph from a peripheral column) to the rounded LP point, the other value or a backtrack when propagation rules a fixing out, then an LP sets the continuous columns",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,

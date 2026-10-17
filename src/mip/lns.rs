@@ -81,6 +81,79 @@ pub fn decision_cols(
     out
 }
 
+/// The level of each column in a breadth-first search over the
+/// variable/constraint graph from a pseudo-peripheral column of its
+/// component (George and Liu: restart from a column of the last level while
+/// that makes the search deeper). On a time-indexed model the levels are the
+/// periods, found from the matrix alone: chains (state of charge, ramping)
+/// link adjacent periods and the rows of a period link its columns.
+pub fn time_levels(g: &Graph) -> Vec<i32> {
+    let n = g.a_start.len() - 1;
+    let num_row = g.ar_start.len().saturating_sub(1);
+    let mut level = vec![-1i32; n];
+    let mut seen_row = vec![0u32; num_row];
+    let mut mark = vec![0u32; n];
+    let mut stamp = 0u32;
+    let mut queue: Vec<i32> = Vec::new();
+    // one search from `start` (columns already in `level` are left alone);
+    // the visited columns are in `queue`, in order
+    let mut bfs = |start: usize, level: &mut [i32], queue: &mut Vec<i32>, stamp: u32| {
+        queue.clear();
+        queue.push(start as i32);
+        mark[start] = stamp;
+        level[start] = 0;
+        let mut head = 0;
+        while head < queue.len() {
+            let j = queue[head] as usize;
+            head += 1;
+            for p in g.col(j) {
+                let row = g.a_index[p] as usize;
+                if seen_row[row] == stamp {
+                    continue;
+                }
+                seen_row[row] = stamp;
+                for q in g.row(row) {
+                    let k = g.ar_index[q] as usize;
+                    if mark[k] != stamp {
+                        mark[k] = stamp;
+                        level[k] = level[j] + 1;
+                        queue.push(k as i32);
+                    }
+                }
+            }
+        }
+    };
+    // the smallest column of the last level
+    let deepest = |level: &[i32], queue: &[i32]| {
+        let l = level[*queue.last().unwrap() as usize];
+        let start = queue.iter().rev().take_while(|&&k| level[k as usize] == l).map(|&k| k as usize).min().unwrap();
+        (start, l)
+    };
+    for c in 0..n {
+        if level[c] != -1 {
+            continue;
+        }
+        stamp += 1;
+        bfs(c, &mut level, &mut queue, stamp);
+        let (mut start, mut depth) = (c, level[*queue.last().unwrap() as usize]);
+        for _ in 0..4 {
+            let (cand, _) = deepest(&level, &queue);
+            stamp += 1;
+            bfs(cand, &mut level, &mut queue, stamp);
+            let d = level[*queue.last().unwrap() as usize];
+            if d <= depth {
+                // not deeper: the levels from the last start
+                stamp += 1;
+                bfs(start, &mut level, &mut queue, stamp);
+                break;
+            }
+            start = cand;
+            depth = d;
+        }
+    }
+    level
+}
+
 /// HighsPrimalHeuristics::LnsMove
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -409,5 +482,20 @@ mod tests {
         let cur = [1.0, 0.0, 1.0];
         lns.find_partners(&g, 1, &cur, &z, &[1.0; 3], &[-1.0, -2.0, -3.0]);
         assert_eq!(lns.partners.iter().map(|p| p.1).collect::<Vec<_>>(), vec![0, 2]);
+    }
+
+    #[test]
+    fn time_levels_from_a_peripheral_column() {
+        // the path x1 - x0 - x2 - x3 (rows {0,1}, {0,2}, {2,3}): levels from
+        // the end x3, though the search starts at x0
+        let g = Graph {
+            a_start: &[0, 2, 3, 5, 6],
+            a_index: &[0, 1, 0, 1, 2, 2],
+            a_value: &[1.0; 6],
+            ar_start: &[0, 2, 4, 6],
+            ar_index: &[0, 1, 0, 2, 2, 3],
+            ar_value: &[1.0; 6],
+        };
+        assert_eq!(time_levels(&g), vec![2, 3, 1, 0]);
     }
 }

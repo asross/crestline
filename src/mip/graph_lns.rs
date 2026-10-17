@@ -8,7 +8,7 @@
 use super::cuts::sort::pdqsort;
 use super::domain::{DomChg as Chg, Reason, LOWER as LO, REASON_BRANCHING, UPPER as UP};
 use super::glue::{self, lp_status, source, Bnd, Dom, Lp, MipData, Worker};
-use super::lns::{decision_cols, select_type, Graph, Lns};
+use super::lns::{decision_cols, select_type, time_levels, Graph, Lns};
 use super::primal::{cmax, cmin, Heur};
 use crate::lp_data::LogType;
 use crate::util::fma::ClangFma;
@@ -944,6 +944,116 @@ impl Heur {
             t[3].tried
         );
         s.charge_iterations();
+    }
+}
+
+impl Heur {
+    /// Fix-propagate with backtracking in time order (Salvagnin, Roberti
+    /// and Fischetti's FPR in its depth-first mode, without the WalkSAT
+    /// repair, which moves one variable at a time: hopeless on equality
+    /// chains). The integer columns are fixed by time level, so propagation
+    /// carries each period's fixings along the chains to the next, like a
+    /// simulation; each to the rounding of the LP point (no LP re-solves).
+    /// When propagation rules a fixing out, the other rounding is tried,
+    /// then the latest fixing with an untried alternative is flipped. At the
+    /// end an LP sets the continuous columns.
+    pub fn fpr(&self, m: &MipData, w: &Worker, relaxationsol: &[f64]) {
+        let n = m.num_col as usize;
+        if relaxationsol.len() != n || w.globaldom().infeasible() {
+            return;
+        }
+        let levels = time_levels(&mip_graph(m));
+        let mut order = self.intcols().to_vec();
+        order.sort_unstable_by_key(|&c| (levels[c as usize], c));
+        let feastol = m.feastol();
+        let (uplocks, downlocks) = (m.uplocks(), m.downlocks());
+        let dom = Dom::copy(&w.globaldom());
+        // the decisions: position in `order`, the other value, whether it
+        // was tried
+        let mut path: Vec<(usize, f64, bool)> = Vec::new();
+        let max_nodes = 2 * order.len() + 100;
+        let mut nodes = 0;
+        let mut k = 0;
+        let found = 'search: loop {
+            let b = dom.bnd();
+            while k < order.len() && b.lo(order[k] as usize) == b.up(order[k] as usize) {
+                k += 1;
+            }
+            if k == order.len() {
+                break true;
+            }
+            if nodes >= max_nodes || ((nodes & 1023) == 1023 && m.check_limits()) {
+                break false;
+            }
+            let col = order[k];
+            let c = col as usize;
+            let x = relaxationsol[c];
+            let v = if uplocks[c] == 0 {
+                (x - feastol).ceil()
+            } else if downlocks[c] == 0 {
+                (x + feastol).floor()
+            } else {
+                x.round()
+            };
+            let v = cmin(cmax(v, b.lo(c)), b.up(c));
+            let other = cmin(cmax(if x > v { v + 1.0 } else { v - 1.0 }, b.lo(c)), b.up(c));
+            nodes += 1;
+            if fix_try(&dom, col, v) {
+                path.push((k, other, other == v));
+                k += 1;
+                continue;
+            }
+            if other != v {
+                nodes += 1;
+                if fix_try(&dom, col, other) {
+                    path.push((k, v, true));
+                    k += 1;
+                    continue;
+                }
+            }
+            // backtrack to the latest decision with an untried alternative
+            loop {
+                let Some(last) = path.last_mut() else {
+                    break 'search false;
+                };
+                dom.backtrack();
+                if last.2 {
+                    path.pop();
+                    continue;
+                }
+                last.2 = true;
+                nodes += 1;
+                let (pos, val) = (last.0, last.1);
+                if fix_try(&dom, order[pos], val) {
+                    k = pos + 1;
+                    break;
+                }
+                path.pop();
+            }
+        };
+        crate::log_dev!(
+            &m.log,
+            LogType::Verbose,
+            "FPR: %s after %d fixings, %d decisions\n",
+            if found { "all integers fixed" } else { "failed" },
+            nodes,
+            path.len() as i32
+        );
+        if !found {
+            return;
+        }
+        if order.len() == n {
+            let b = dom.bnd();
+            let sol: Vec<f64> = (0..n).map(|c| b.lo(c)).collect();
+            glue::try_solution(m, w, &sol, source::HEURISTIC);
+            return;
+        }
+        let (lp, st) = Heur::rounding_lp(m, w, &dom, (5 * order.len()) / n >= 1, b"HighsPrimalHeuristics::fpr\0");
+        if lp_status::unscaled_primal_feasible(st) {
+            let sol = lp.col_value().to_vec();
+            glue::add_incumbent(m, w, &sol, lp.objective(), source::HEURISTIC);
+        }
+        crate::log_dev!(&m.log, LogType::Verbose, "FPR: LP status %d, objective %.4f\n", st, lp.objective());
     }
 }
 
