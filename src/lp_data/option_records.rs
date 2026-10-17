@@ -873,6 +873,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_symmetry_static_orbitopes",
+        description: "Whether orbitopes with set packing rows are handled in a static row order from the root on (orbitopal fixing of the triangle on the global domain, symmetries finished after the first root LP) rather than in the order of the branching rows (as in HiGHS)",
+        bool_default: true,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_root_lp_ipx",
         description: "Whether IPX with crossover alone solves the MIP's first root LP, if it has at least 10000 nonzeros (and no basis), rather than the dual simplex or a race of the two",
         bool_default: false,

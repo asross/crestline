@@ -116,6 +116,8 @@ pub struct OrbitopeMatrix {
     pub row_is_set_packing: Vec<RowPacking>,
     /// column-major, num_rows x row_length
     pub matrix: Vec<i32>,
+    /// handle the packing rows in their static order (see static_packing)
+    pub static_order: bool,
 }
 
 impl OrbitopeMatrix {
@@ -205,7 +207,7 @@ impl OrbitopeMatrix {
     /// symmetry reduction on its own, and the same order at every node
     /// keeps the fixings consistent.
     pub fn static_packing(&self) -> bool {
-        self.num_set_packing_rows >= 2
+        self.static_order && self.num_set_packing_rows >= 2
     }
 
     /// Orbitopal fixing on the packing rows in the static order
@@ -1718,6 +1720,7 @@ impl SymmetryDetection {
             column_to_row: HighsHashTable::new(),
             row_is_set_packing: Vec::new(),
             matrix,
+            static_order: false,
         });
         true
     }
