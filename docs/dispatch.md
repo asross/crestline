@@ -366,6 +366,55 @@ The paths after it are the same (the gaps at 180 s do not change). What
 it adds is its own time, before graph LNS starts. Two threads were not
 run.
 
+## Storage cuts (measured, not implemented, 2026-10-17)
+
+Elgersma et al. (arXiv:2411.17484) and Morales (arXiv:2506.21470) give
+inequalities for storage that stop the LP from charging and discharging
+at once, plus multi-period trajectory inequalities.
+
+**The structure is not theirs.** In the dispatch models a storage module
+has `soc(t+1) = l soc(t) - e discharge(t) + a switch(bank, t)`, with `l`
+close to 1 (0.998) and `e` = 0.5 or 1. Discharge is continuous and
+bounded, between two fractions of the state of charge. Charging is the
+bank's binary switch at a fixed rate, shared by the 4-8 modules of the
+bank. There is no charge/discharge mode binary, and no row forbids
+charging while discharging: the MIP allows it, so cuts that exclude it
+would be invalid here. What could still apply is the multi-period part:
+capacity-limited trajectories of a binary, fixed-rate charge.
+
+**Detection from the matrix works.** It needs no names:
+- a state column is a continuous column in exactly two equality rows,
+  with opposite signs, neither row holding more than 4 such columns
+  (which rules out balance rows such as the heat balance);
+- a recurrence row holds two state columns of opposite sign;
+- chains link recurrence rows through their state columns.
+
+This finds 201-202 chains of 54-55 rows (the full horizon) on
+`hard_10-03`, `dm_full_pert_s1_ramp` and 3c1b60d6, with the charge
+binary in 51-60% of their rows. On uccase9 and unitcal_7 it finds
+nothing (no misfire).
+
+**No root bound to gain.** The test, done offline: the bank-level and
+multi-period aggregations of the recurrence rows (sums over a bank's
+modules, and over windows of 1, 2, 4, 8 and 16 periods; about 7000 rows)
+were added to the model as rows. Crest's path aggregation and cMIR
+separation start from every row, so any MIR cut on those aggregations is
+within its reach. Root dual bound (node limit 1, M1, mean of seeds 0-2;
+the per-seed spread in brackets):
+
+| | original | with the aggregations |
+|---|---|---|
+| `hard_10-03` (best known -248801) | -251629 [145] | -251663 [81] |
+| `diverse_10-01` | -250235 [81] | -250185 [78] |
+| `dm_full_pert_s1_ramp` | -323487 [166] | -323541 [0] |
+| `dm_medium_prices_noramp` | -150644 [42] | -150646 [98] |
+
+Every change is within the seed spread (the largest, +0.02% on
+`diverse_10-01`), against a root gap of about 1.1% on the bound-limited
+ticks. Adding bank and module windows together (45k rows) left
+`hard_10-03` at -251744 on seed 0. So no separator was written, and no
+runner time was spent.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -391,3 +440,4 @@ run.
 - Time-window neighbourhoods, free or pinned (see above).
 - A bandit over the LNS LPs' cost perturbation (see above).
 - Time-ordered fix-propagate with backtracking at the root (see above).
+- Storage valid inequalities as root cuts (measured; see above).
