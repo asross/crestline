@@ -8,7 +8,7 @@
 use super::cuts::sort::pdqsort;
 use super::domain::{DomChg as Chg, Reason, LOWER as LO, REASON_BRANCHING, UPPER as UP};
 use super::glue::{self, lp_status, source, Bnd, Dom, Lp, MipData, Worker};
-use super::lns::{decision_cols, select_type, ucb, Graph, Lns, LnsMove};
+use super::lns::{decision_cols, select_type, Graph, Lns};
 use super::primal::{cmax, cmin, Heur};
 use crate::lp_data::LogType;
 use crate::util::fma::ClangFma;
@@ -747,9 +747,6 @@ impl Heur {
             }
         }
         let mut deep_tries = [0i32; 4];
-        // (0: the LP option as set above, without perturbation)
-        let pert_bandit = deep && m.opts.mip_graph_lns_bandit_perturbation;
-        let mut pert_arm = if m.opts.graph_lns_cost_perturbation { 1 } else { 0 };
         s.screen = Dom::copy(&gd);
         let mut it = 0;
         while since < max_stall && it < max_it {
@@ -770,14 +767,6 @@ impl Heur {
                 let fe = s.flips_exhausted();
                 ty = select_type(&s.h.lns_moves, &mut deep_tries, fe);
             }
-            // the perturbation bandit's choice for this move
-            if pert_bandit {
-                let arm = ucb(&s.h.lns_pert);
-                if arm != pert_arm {
-                    s.lp.set_option(if arm == 1 { 5 } else { 4 });
-                    pert_arm = arm;
-                }
-            }
             let dived = ty == 3;
             if ty == 2 {
                 let before = m.upper_bound();
@@ -793,9 +782,6 @@ impl Heur {
                     nt.improved += 1;
                 }
                 nt.rate = 0.7f64.mul_add_c(nt.rate, 0.3 * closed / effort);
-                if pert_bandit {
-                    reward(&mut s.h.lns_pert[pert_arm], m.upper_bound() < before - feastol, closed, effort);
-                }
                 crate::log_dev!(
                     log,
                     LogType::Verbose,
@@ -904,9 +890,6 @@ impl Heur {
             if improved {
                 nt.improved += 1;
             }
-            if pert_bandit && !pruned {
-                reward(&mut s.h.lns_pert[pert_arm], improved, closed, effort);
-            }
             crate::log_dev!(
                 log,
                 LogType::Verbose,
@@ -960,30 +943,8 @@ impl Heur {
             t[3].improved,
             t[3].tried
         );
-        if pert_bandit {
-            let p = s.h.lns_pert;
-            crate::log_dev!(
-                log,
-                LogType::Info,
-                "%s perturbation bandit: improved by %d/%d without, %d/%d with\n",
-                who,
-                p[0].improved,
-                p[0].tried,
-                p[1].improved,
-                p[1].tried
-            );
-        }
         s.charge_iterations();
     }
-}
-
-/// a perturbation arm's reward, as the move types'
-fn reward(a: &mut LnsMove, improved: bool, closed: f64, effort: f64) {
-    a.tried += 1;
-    if improved {
-        a.improved += 1;
-    }
-    a.rate = 0.7f64.mul_add_c(a.rate, 0.3 * closed / effort);
 }
 
 /// graphLNS
