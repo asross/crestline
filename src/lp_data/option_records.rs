@@ -901,6 +901,16 @@ pub const RECORDS: &[Meta] = &[
         str_default: "",
     },
     Meta {
+        type_: INT,
+        advanced: false,
+        name: "mip_graph_lns_time_windows",
+        description: "Graph LNS neighbourhoods over time windows: the levels of a breadth-first search from a peripheral column of the variable/constraint graph (the periods of a time-indexed model) are swept in overlapping windows, one more move for the deep search and every other neighbourhood of the quick search (0: off; 1: the decision columns of a window free, as in the other neighbourhoods; 2: also every column outside the window fixed at the incumbent)",
+        bool_default: false,
+        int: (0, 0, 2),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
         type_: BOOL,
         advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",

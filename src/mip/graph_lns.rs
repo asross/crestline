@@ -8,7 +8,7 @@
 use super::cuts::sort::pdqsort;
 use super::domain::{DomChg as Chg, Reason, LOWER as LO, REASON_BRANCHING, UPPER as UP};
 use super::glue::{self, lp_status, source, Bnd, Dom, Lp, MipData, Worker};
-use super::lns::{decision_cols, select_type, Graph, Lns};
+use super::lns::{decision_cols, select_type, time_levels, Graph, Lns, NUM_MOVES};
 use super::primal::{cmax, cmin, Heur};
 use crate::lp_data::LogType;
 use crate::util::fma::ClangFma;
@@ -646,7 +646,16 @@ impl Heur {
         }
         let n = m.num_col as usize;
         let g = mip_graph(m);
-        let lns = Lns::new(&g, m.num_row as usize, &self.decisioncols);
+        let mut lns = Lns::new(&g, m.num_row as usize, &self.decisioncols);
+        let windows = m.opts.mip_graph_lns_time_windows;
+        if windows > 0 {
+            if self.lns_levels.is_empty() {
+                self.lns_levels = time_levels(&g);
+                self.lns_num_levels = 1 + self.lns_levels.iter().copied().max().unwrap_or(0);
+                crate::log_dev!(&m.log, LogType::Info, "LNS time windows: %d levels\n", self.lns_num_levels);
+            }
+            lns.set_levels(&self.lns_levels);
+        }
         // one LP relaxation copy for the whole heuristic; bounds live in a
         // domain
         let lp = Lp::copy(w.d.lp, w);
@@ -743,10 +752,10 @@ impl Heur {
         let mut since = 0;
         for (t, mv) in s.h.lns_moves.iter_mut().enumerate() {
             if mv.size == 0.0 {
-                mv.size = if t == 3 { dive_size0 } else { dfs_size0 };
+                mv.size = if t == 3 || t == 5 { dive_size0 } else { dfs_size0 };
             }
         }
-        let mut deep_tries = [0i32; 4];
+        let mut deep_tries = [0i32; NUM_MOVES];
         s.screen = Dom::copy(&gd);
         let mut it = 0;
         while since < max_stall && it < max_it {
@@ -762,12 +771,13 @@ impl Heur {
             // the quick search only dives; the deep search tries each type
             // once, then mostly the one closing the most gap per LP
             // iteration recently
-            let mut ty = 3;
+            // (with time windows, every other quick neighbourhood is one)
+            let mut ty = if windows > 0 && it % 2 == 1 { 5 } else { 3 };
             if deep {
                 let fe = s.flips_exhausted();
-                ty = select_type(&s.h.lns_moves, &mut deep_tries, fe);
+                ty = select_type(&s.h.lns_moves, &mut deep_tries, fe, windows > 0);
             }
-            let dived = ty == 3;
+            let dived = ty == 3 || ty == 5;
             if ty == 2 {
                 let before = m.upper_bound();
                 let limit_before = m.optimality_limit();
@@ -806,8 +816,17 @@ impl Heur {
                 let (glo, gup) = unsafe { bound_slices(&gd.bnd(), n) };
                 // graph LNS runs outside the parallel lock: the heuristics'
                 // own generator
-                let rng = s.h.own_rng();
-                s.lns.build(&s.g, ty as i32, size.max(0) as usize, deep, m.incumbent(), relaxationsol, glo, gup, rng);
+                if ty >= 4 {
+                    if s.h.lns_window_next < 0 {
+                        let nl = s.h.lns_num_levels;
+                        s.h.lns_window_next = s.h.own_rng().integer_below(nl);
+                    }
+                    let start = s.h.lns_window_next;
+                    s.h.lns_window_next = s.lns.window(&s.h.lns_levels, start, size.max(0) as usize, glo, gup);
+                } else {
+                    let rng = s.h.own_rng();
+                    s.lns.build(&s.g, ty as i32, size.max(0) as usize, deep, m.incumbent(), relaxationsol, glo, gup, rng);
+                }
             }
             let neighbourhood = s.lns.neighbourhood.clone();
 
@@ -826,6 +845,30 @@ impl Heur {
                     feasible = false;
                     break;
                 }
+            }
+            if feasible && ty >= 4 && windows == 2 {
+                // the rest of the model fixed at the incumbent outside the
+                // window's levels (so its chains are pinned at both ends)
+                let (lo, hi) = s.lns.window_levels;
+                let inc = m.incumbent();
+                let integrality = m.integrality();
+                for col in 0..n {
+                    let l = s.h.lns_levels[col];
+                    if s.lns.is_decision[col] != 0 || (lo <= l && l <= hi) {
+                        continue;
+                    }
+                    let b = dom.bnd();
+                    let v = if integrality[col] != 0 { inc[col].round() } else { inc[col] };
+                    let v = cmin(cmax(v, b.lo(col)), b.up(col));
+                    if b.lo(col) < v {
+                        dom.change_bound(Chg { boundval: v, column: col as i32, boundtype: LO }, Reason::UNSPECIFIED);
+                    }
+                    if b.up(col) > v {
+                        dom.change_bound(Chg { boundval: v, column: col as i32, boundtype: UP }, Reason::UNSPECIFIED);
+                    }
+                }
+                dom.propagate();
+                feasible = !dom.infeasible();
             }
             s.h.lns_moves[ty].tried += 1;
             if !feasible {
@@ -943,6 +986,19 @@ impl Heur {
             t[3].improved,
             t[3].tried
         );
+        if windows > 0 {
+            crate::log_dev!(
+                log,
+                LogType::Info,
+                "%s %s search: improved by %d/%d (windows) %d/%d (windows dived) neighbourhoods\n",
+                who,
+                if deep { "deep" } else { "quick" },
+                t[4].improved,
+                t[4].tried,
+                t[5].improved,
+                t[5].tried
+            );
+        }
         s.charge_iterations();
     }
 }
