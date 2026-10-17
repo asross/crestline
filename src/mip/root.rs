@@ -266,8 +266,10 @@ impl MipData {
             // with static orbitopes the symmetries are synced first, so the
             // detection is spawned after the analytic centre (the task group
             // syncs its most recent task first)
-            let static_orbitopes = o.mip_symmetry_static_orbitopes;
-            if self.sc().detect_symmetries && !static_orbitopes {
+            // (with one worker only: on more, the detection runs on another
+            // thread, and an early sync would wait for it)
+            let early_symmetries = o.mip_symmetry_static_orbitopes && self.num_workers() == 1;
+            if self.sc().detect_symmetries && !early_symmetries {
                 self.start(clk::START_SYMMETRY_DETECTION);
                 self.o(op::START_SYMMETRY_DETECTION);
                 self.stop(clk::START_SYMMETRY_DETECTION);
@@ -280,7 +282,7 @@ impl MipData {
                 self.o(op::START_ANALYTIC_CENTER);
                 self.stop(clk::START_ANALYTIC_CENTRE);
             }
-            if self.sc().detect_symmetries && static_orbitopes {
+            if self.sc().detect_symmetries && early_symmetries {
                 self.start(clk::START_SYMMETRY_DETECTION);
                 self.o(op::START_SYMMETRY_DETECTION);
                 self.stop(clk::START_SYMMETRY_DETECTION);
@@ -342,7 +344,7 @@ impl MipData {
             // the symmetries before the root cuts and heuristics: the static
             // orbitope fixings then apply to the whole root
             let mut symmetries_finished = false;
-            if self.sc().detect_symmetries && static_orbitopes {
+            if self.sc().detect_symmetries && early_symmetries {
                 self.finish_symmetry_detection();
                 symmetries_finished = true;
                 status = self.eval_root_lp_timed(w);

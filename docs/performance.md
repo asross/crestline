@@ -739,14 +739,44 @@ incompatible with root fixings). Sorting the columns of a submatrix of
 the orbitope is a valid reduction on its own. To fix early, symmetry
 detection is finished after the first root LP (it was finished after the
 root cut loop), so its task is now spawned after the analytic centre's.
-Off, crest is as HiGHS; bench/quick_check.sh and perf.py set it off for
-the CI oracle.
+With more than one worker the detection runs on another thread and is
+finished where it was (after the root cut loop; syncing early would wait
+for it), and the triangle is fixed then. Off, crest is as HiGHS;
+bench/quick_check.sh and perf.py set it off for the CI oracle.
 
 Local (M1, 120 s, 55 MIPLIB instances, seed 0): only instances with
 symmetry change path; same optimal values everywhere; graph20-20-1rand
 solved in 118-167 s (was unsolved at 300 s), neos-933966 17 s (unsolved
 at 120 s), piperout-27 37.8 -> 24.3 s, ns1208400 43.9 -> 34.2 s,
 neos-911970 6.1 -> 4.3 s; neos-957323 34.7 -> 38.0 s.
+
+**Runners.** bench-std MIPLIB (one thread, 300 s, run 39021753437,
+against the baseline run 38939685629, whose crest takes the same paths
+as main):
+
+| arch | solved | sgm time (s) | wrong |
+|---|---|---|---|
+| x64 | 92 -> 93 | 143.9 -> 143.7 | 0 |
+| arm64 | 91 -> 93 | 146.4 -> 143.2 | 0 |
+
+graph20-20-1rand (x64 242 s, arm64 193 s) and neos-933966 (24 s, 19 s)
+are newly solved on both; fast0507 on x64. The other x64 changes
+(k1mushroom and neos-3004026-krka unsolved, eil33-2, radiationm18-12-05,
+swath3, neos-957323 slower, supportcase33 faster) have the same node
+counts as the baseline and ran on other CPU models (the x64 runners mix
+EPYC 7763, 9V45, 9V74 and Xeon 6973P): load, not path; on arm64 those
+instances are even.
+
+bench-dispatch (16 seeds, 180 s; runs 39021754772 and 39021756191):
+one thread, solved 371 -> 371 on both arches, time 0.999 (arm64) and
+1.002 (x64), no interval above 1. The dispatch ticks have a full
+orbitope (1120 columns on dm_full_pert_s2_ramp) but no packing rows,
+so their one-thread paths do not change. Two threads with the early
+sync: solved 381 -> 382 / 377 -> 382, time 1.008 / 1.000, but
+dm_full_pert_s2_ramp 1.032 [1.022, 1.042] on x64 (primal integral +0.08
+points): the early sync waited for the detection running on the second
+core and changed which task the helper took. Since then the early sync
+is one-worker only, so two-thread runs schedule as main.
 
 ## Other platforms
 
