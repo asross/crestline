@@ -70,6 +70,9 @@ pub struct Heur {
     /// a graph-LNS dive from the LP point found nothing: don't dive again
     pub(crate) lns_dive_failed: bool,
     pub(crate) lns_moves: [LnsMove; 4],
+    /// the perturbation bandit's arms: without, with
+    /// (mip_graph_lns_bandit_perturbation)
+    pub(crate) lns_pert: [LnsMove; 2],
     pub(crate) lns_flip_obj: f64,
     pub(crate) lns_flip_next: i32,
     success_observations: f64,
@@ -162,6 +165,7 @@ impl Heur {
             decision_cols_set_up: false,
             lns_dive_failed: false,
             lns_moves: [LnsMove::default(); 4],
+            lns_pert: [LnsMove::default(); 2],
             lns_flip_obj: INF,
             lns_flip_next: 0,
             success_observations: 0.0,
@@ -220,6 +224,7 @@ impl Heur {
         self.decision_cols_set_up = false;
         self.decisioncols.clear();
         self.lns_moves = [LnsMove::default(); 4];
+        self.lns_pert = [LnsMove::default(); 2];
         self.lns_flip_obj = INF;
         let feastol = m.feastol();
         let (up, down) = (m.uplocks(), m.downlocks());

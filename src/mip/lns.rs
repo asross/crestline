@@ -124,6 +124,26 @@ pub fn select_type(types: &[LnsMove; 4], deep_tries: &mut [i32; 4], flips_exhaus
     ty
 }
 
+/// UCB over arms: each once, then the best rate plus the exploration bonus
+/// of select_type
+pub fn ucb(arms: &[LnsMove]) -> usize {
+    let max_rate = arms.iter().fold(0.0f64, |a, m| a.max(m.rate));
+    let num_tried: i32 = arms.iter().map(|m| m.tried).sum();
+    let mut best = (f64::NEG_INFINITY, 0);
+    for (t, m) in arms.iter().enumerate() {
+        let score = if m.tried == 0 {
+            f64::INFINITY
+        } else {
+            let base = if max_rate > 0.0 { m.rate / max_rate } else { 0.0 };
+            0.5f64.mul_add_c(((num_tried as f64).ln() / m.tried as f64).sqrt(), base)
+        };
+        if score > best.0 {
+            best = (score, t);
+        }
+    }
+    best.1
+}
+
 /// The state of one graphLNS call
 pub struct Lns {
     pub decision: Vec<i32>,

@@ -903,6 +903,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_graph_lns_bandit_perturbation",
+        description: "Whether a second bandit in the deep graph LNS search chooses, for each move, whether its LP solves use dual simplex cost perturbation (by the gap closed per LP iteration, as for the move types), rather than following mip_graph_lns_cost_perturbation",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,

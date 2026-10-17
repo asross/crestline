@@ -356,6 +356,7 @@ pub struct MipOptions {
     pub mip_root_lp_ipx: bool,
     pub mip_root_lp_effort_from_basis: bool,
     pub mip_graph_lns_deep_early: bool,
+    pub mip_graph_lns_bandit_perturbation: bool,
 }
 
 /// The original model (for solutions in the original space)
@@ -776,7 +777,9 @@ impl Lp {
             // kSimplexStrategyPrimal
             2 => h.set_option("simplex_strategy", OptValue::Int(4)),
             3 => h.set_option("primal_simplex_bound_perturbation_multiplier", OptValue::Double(0.0)),
-            _ => h.set_option("dual_simplex_cost_perturbation_multiplier", OptValue::Double(0.0)),
+            4 => h.set_option("dual_simplex_cost_perturbation_multiplier", OptValue::Double(0.0)),
+            // (the default)
+            _ => h.set_option("dual_simplex_cost_perturbation_multiplier", OptValue::Double(1.0)),
         };
     }
     /// setBasis(firstrootbasis, origin); `origin` is NUL-terminated
