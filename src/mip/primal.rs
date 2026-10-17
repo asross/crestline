@@ -16,7 +16,7 @@ use super::cuts::sort::{partition, pdqsort};
 use super::domain::{DomChg, Reason, LOWER, REASON_BRANCHING};
 use super::glue::{self, lp_status, source, Dom, Lp, MipData, SearchH, Worker, MODEL_STATUS_INFEASIBLE, MODEL_STATUS_NOTSET};
 use super::heuristics;
-use super::lns::{LnsMove, NUM_MOVES};
+use super::lns::LnsMove;
 use super::search::FracInt;
 use crate::util::fma::ClangFma;
 use crate::util::hash::hash_bytes;
@@ -69,13 +69,7 @@ pub struct Heur {
     pub(crate) decision_cols_set_up: bool,
     /// a graph-LNS dive from the LP point found nothing: don't dive again
     pub(crate) lns_dive_failed: bool,
-    pub(crate) lns_moves: [LnsMove; NUM_MOVES],
-    /// the columns' time levels (mip_graph_lns_time_windows; empty until
-    /// needed), their number, and the level the next window starts from
-    /// (-1: random)
-    pub(crate) lns_levels: Vec<i32>,
-    pub(crate) lns_num_levels: i32,
-    pub(crate) lns_window_next: i32,
+    pub(crate) lns_moves: [LnsMove; 4],
     pub(crate) lns_flip_obj: f64,
     pub(crate) lns_flip_next: i32,
     success_observations: f64,
@@ -167,10 +161,7 @@ impl Heur {
             decisioncols: Vec::new(),
             decision_cols_set_up: false,
             lns_dive_failed: false,
-            lns_moves: [LnsMove::default(); NUM_MOVES],
-            lns_levels: Vec::new(),
-            lns_num_levels: 0,
-            lns_window_next: -1,
+            lns_moves: [LnsMove::default(); 4],
             lns_flip_obj: INF,
             lns_flip_next: 0,
             success_observations: 0.0,
@@ -228,9 +219,7 @@ impl Heur {
         let mut intcols = m.integer_cols().to_vec();
         self.decision_cols_set_up = false;
         self.decisioncols.clear();
-        self.lns_moves = [LnsMove::default(); NUM_MOVES];
-        self.lns_levels.clear();
-        self.lns_window_next = -1;
+        self.lns_moves = [LnsMove::default(); 4];
         self.lns_flip_obj = INF;
         let feastol = m.feastol();
         let (up, down) = (m.uplocks(), m.downlocks());
