@@ -240,6 +240,54 @@ bound after cuts and the best solution known are 1.13% apart: certifying
 search reaches it in 180 s. There the incumbent at the time limit is what
 counts.
 
+## Time-window neighbourhoods (rejected, 2026-10-17)
+
+SCIP's GINS rolling-horizon mode and Kempke et al. (arXiv:2502.19012) walk
+a time-indexed model in contiguous windows. Tried here as
+`mip_graph_lns_time_windows` (removed), with the time axis found from the
+matrix alone: the levels of a breadth-first search over the
+variable/constraint graph from a pseudo-peripheral column (George-Liu
+restarts). On the dispatch models, these levels are the periods. On
+`dm_full_pert_s1_ramp` there are 59 levels for 56 steps, and level L
+holds the switches of period 56 - L. The hard ticks have 60 levels; on
+3c1b60d6 there are 99, because a tail of 38 levels has 2 columns each.
+Windows of the decision columns, ordered by level, were swept with half
+overlap from a random start. They were two more moves for the deep
+search's bandit (searched by branch and bound, and dived), and every
+other neighbourhood of the quick search.
+- mode 1: the window's decision columns free, as in the other
+  neighbourhoods (continuous columns stay free everywhere);
+- mode 2: also every column outside the window's levels fixed at the
+  incumbent, so the chains are pinned at both ends.
+
+Runners, one thread, 16 seeds, 180 s, against main (2fd8779):
+
+| | x86_64 | arm64 |
+|---|---|---|
+| mode 1: solved models, time (geometric mean) | 1.013 | 1.006 |
+| ... `dm_small_pert_s1_ramp` | 1.491 [1.128, 1.971] | 1.483 [1.134, 1.939] |
+| ... `dm_medium_randsoc_noramp` | 0.886 [0.823, 0.954] | 0.877 [0.816, 0.944] |
+| ... `dm_full_pert_s1_ramp` | 0.941 [0.892, 0.993] | 0.945 [0.894, 0.999] |
+| ... runs solved (of 400) | 373 -> 371 | 372 -> 371 |
+| ... `hard_10-03` gap at 180 s / mean primal gap | +0.012 ± 0.072 / -0.003 ± 0.088 | +0.011 ± 0.073 / +0.030 ± 0.091 |
+| ... `diverse_10-01` gap / mean primal gap | +0.024 ± 0.039 / +0.023 ± 0.046 | +0.010 ± 0.046 / +0.033 ± 0.038 |
+| mode 2: solved models, time | 1.070 | 1.066 |
+| ... 3c1b60d6 | 1.338 [1.011, 1.770] | 1.360 [1.016, 1.820] |
+| ... `diverse_10-01` gap | +0.085 ± 0.063 | +0.074 ± 0.066 |
+
+Likely why (not instrumented further): a breadth-first neighbourhood from a seed already covers the
+periods around it, since each period's rows link all its units at
+distance one and the chains link neighbouring periods. So a window is
+much like the BFS neighbourhoods. What it lacks is their seeds (reduced
+cost promise, disagreement with the LP), and the windows' share of the
+budget went to blind sweeps. Pinning the continuous columns makes each
+window LP a smaller problem, but the next neighbourhood's LP then has to
+leave the pinned point (16k dual simplex iterations after one pinned
+window on `dm_full_pert_s1_ramp`, against about 3-5k), and the restricted
+windows improve less. Two threads were not run: the one-thread result
+already fails the acceptance rule (a regression on one model on both
+architectures, no gain on the time-limited ticks).
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -262,3 +310,4 @@ counts.
   `diverse_10-01` runs (see [performance.md](./performance.md)).
 - `mip_concurrent_crossover` on two threads: 1.12x the time on the solved
   dispatch models.
+- Time-window neighbourhoods, free or pinned (see above).
