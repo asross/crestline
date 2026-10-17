@@ -587,6 +587,7 @@ unsafe extern "C" fn mip_value(p: *mut c_void, which: i32) -> f64 {
         0 => d.sc.feastol,
         1 => d.sc.epsilon,
         2 => x.get_upper_limit(),
+        4 => x.ms().opts.mip_strong_branching_lookahead as f64,
         _ => x.get_optimality_limit(),
     }
 }

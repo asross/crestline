@@ -901,6 +901,16 @@ pub const RECORDS: &[Meta] = &[
         str_default: "",
     },
     Meta {
+        type_: INT,
+        advanced: false,
+        name: "mip_strong_branching_lookahead",
+        description: "Reliability branching stops strong branching after this many strong-branched candidates in a row without a better score (0: no lookahead, as HiGHS)",
+        bool_default: false,
+        int: (0, 8, 2147483647),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
         type_: BOOL,
         advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",

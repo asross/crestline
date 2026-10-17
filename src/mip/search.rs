@@ -937,8 +937,16 @@ impl Search {
 
         let mut min_score = feastol;
         let playground = cb!(self, playground_new);
+        // lookahead (as SCIP's reliability branching): stop strong
+        // branching after this many strong-branched candidates in a row
+        // that do not improve the best score (0: no limit)
+        let lookahead = cb!(self, mip_value, 4) as i32;
+        let mut best_sb_score = -1.0f64;
+        let mut sb_without_gain = 0;
         let result = loop {
-            let must_stop = self.strong_branching_lp_iterations() >= max_sb_iters || self.check_limits(0);
+            let must_stop = self.strong_branching_lp_iterations() >= max_sb_iters
+                || self.check_limits(0)
+                || (lookahead > 0 && sb_without_gain >= lookahead);
 
             // selectBestScore
             let candidate = {
@@ -1026,6 +1034,15 @@ impl Search {
             };
             if self.strong_branch(&mut sb, playground, cand, col, fracval, upval, downval, !down_first) {
                 break -1;
+            }
+            if lookahead > 0 {
+                let score = self.ps().get_score_costs(col, upscore[cand], downscore[cand]);
+                if score > best_sb_score {
+                    best_sb_score = score;
+                    sb_without_gain = 0;
+                } else {
+                    sb_without_gain += 1;
+                }
             }
         };
         // SAFETY: the playground of this call
