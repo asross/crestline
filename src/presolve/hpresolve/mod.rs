@@ -147,6 +147,7 @@ pub struct Options {
     pub presolve_off: bool,
     pub lp_presolve_requires_basis_postsolve: bool,
     pub presolve_remove_slacks: bool,
+    pub mip_detect_network_implied_integers: bool,
     pub output_flag: bool,
     pub timeless_log: bool,
     pub use_implied_bounds_from_presolve: bool,

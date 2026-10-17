@@ -894,6 +894,135 @@ impl Presolve<'_> {
         for col in 0..self.num_col {
             self.convert_implied_integer(col, -1, false)?;
         }
+        if self.opt.mip_detect_network_implied_integers {
+            self.detect_network_implied_integers()?;
+        }
+        Ok(())
+    }
+
+    /// Continuous columns that are jointly implied integral (van der Hulst
+    /// and Walter, arXiv:2504.07209, for the network case): a set C of
+    /// continuous columns with integral bounds and coefficients +-1, at
+    /// most two each, in rows with integral sides whose other entries are
+    /// integral coefficients of integer columns, such that the rows can be
+    /// signed to give every two-entry column one +1 and one -1. With the
+    /// integers fixed, the system on C is then a network matrix (totally
+    /// unimodular) with integral right-hand sides and bounds, so its
+    /// vertices are integral: the columns of C are implied integers.
+    pub(crate) fn detect_network_implied_integers(&mut self) -> R {
+        let nc = self.num_col as usize;
+        let nr = self.num_row as usize;
+        let small = self.opt.small_matrix_value;
+        let integral = |v: f64| v.is_infinite() || fractionality(v) <= small;
+        let mut row_ok = vec![false; nr];
+        for r in 0..nr {
+            row_ok[r] = self.row_deleted[r] == 0 && integral(self.row_lower[r]) && integral(self.row_upper[r]);
+        }
+        let mut cand = vec![false; nc];
+        let mut num_cand = 0;
+        for c in 0..nc {
+            if self.col_deleted[c] != 0
+                || self.integrality[c] != CONTINUOUS
+                || self.colsize[c] == 0
+                || self.colsize[c] > 2
+                || !integral(self.col_lower[c])
+                || !integral(self.col_upper[c])
+            {
+                continue;
+            }
+            let ok = col_iter!(self, c as i32).all(|(r, v)| v.abs() == 1.0 && row_ok[r as usize]);
+            if ok {
+                cand[c] = true;
+                num_cand += 1;
+            }
+        }
+        if num_cand == 0 {
+            return Ok(());
+        }
+        // a row with another continuous entry, or a fractional coefficient
+        // of an integer column, rules out its candidates (to a fixpoint)
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for r in 0..nr {
+                if self.row_deleted[r] != 0 {
+                    continue;
+                }
+                let mut has_cand = false;
+                let mut bad = false;
+                for (c, v) in row_iter!(self, r as i32) {
+                    let cu = c as usize;
+                    if cand[cu] {
+                        has_cand = true;
+                    } else if self.integrality[cu] == CONTINUOUS || fractionality(v) > small {
+                        bad = true;
+                    }
+                }
+                if has_cand && bad {
+                    for (c, _) in row_iter!(self, r as i32) {
+                        if cand[c as usize] {
+                            cand[c as usize] = false;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+        // row signs by union-find with parity: a two-entry column with
+        // equal signs needs rows of opposite sign, otherwise of equal sign
+        let mut parent: Vec<usize> = (0..nr).collect();
+        let mut parity = vec![0u8; nr];
+        fn find(parent: &mut [usize], parity: &mut [u8], x: usize) -> (usize, u8) {
+            let mut p = 0u8;
+            let mut y = x;
+            while parent[y] != y {
+                p ^= parity[y];
+                y = parent[y];
+            }
+            // path compression with the accumulated parities
+            let (root, mut z, mut pz) = (y, x, p);
+            while parent[z] != root && z != root {
+                let next = parent[z];
+                let pn = pz ^ parity[z];
+                parent[z] = root;
+                parity[z] = pz;
+                z = next;
+                pz = pn;
+            }
+            (root, p)
+        }
+        let mut bad_root = vec![false; nr];
+        for c in 0..nc {
+            if !cand[c] || self.colsize[c] != 2 {
+                continue;
+            }
+            let e: Vec<(i32, f64)> = col_iter!(self, c as i32).collect();
+            let ((r1, a1), (r2, a2)) = (e[0], e[1]);
+            let want = (a1 * a2 > 0.0) as u8;
+            let (x, px) = find(&mut parent, &mut parity, r1 as usize);
+            let (y, py) = find(&mut parent, &mut parity, r2 as usize);
+            if x == y {
+                if px ^ py != want {
+                    bad_root[x] = true;
+                }
+            } else {
+                parent[y] = x;
+                parity[y] = px ^ py ^ want;
+                if bad_root[y] {
+                    bad_root[x] = true;
+                }
+            }
+        }
+        for c in 0..nc {
+            if !cand[c] {
+                continue;
+            }
+            let rows: Vec<i32> = col_iter!(self, c as i32).map(|(r, _)| r).collect();
+            if rows.iter().any(|&r| bad_root[find(&mut parent, &mut parity, r as usize).0]) {
+                continue;
+            }
+            self.convert_implied_integer(c as i32, -1, true)?;
+        }
         Ok(())
     }
 
