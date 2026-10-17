@@ -27,6 +27,14 @@ pub struct SepaS {
     /// numCalls and numCutsFound of the tableau, path and mod-k separators
     num_calls: [i32; 3],
     num_cuts_found: [i32; 3],
+    /// the backoff of unproductive separators (mip_separator_backoff): the
+    /// pool's selected cuts of each separator at its last call, its calls
+    /// in a row without a selected cut, the next call that runs it and the
+    /// current skip exponent
+    last_selected: [u64; 3],
+    misses: [i32; 3],
+    next_call: [i32; 3],
+    backoff: [u32; 3],
     cutset: CutSet,
 }
 
@@ -61,6 +69,10 @@ impl SepaS {
             path: cf::highs_rs_path_new(seed as u32),
             num_calls: [0; 3],
             num_cuts_found: [0; 3],
+            last_selected: [0; 3],
+            misses: [0; 3],
+            next_call: [0; 3],
+            backoff: [0; 3],
             cutset: CutSet::default(),
         })
     }
@@ -100,8 +112,35 @@ impl SepaS {
     fn run_separators(&mut self, lp: &LpS, round: &mut Round, cutpool: &CutPoolS) -> bool {
         // SAFETY: the live worker
         let w = unsafe { &*self.worker };
+        let backoff = lp.ms().opts.mip_separator_backoff;
         for k in 0..3 {
             self.num_calls[k] += 1;
+            if backoff {
+                // a separator none of whose cuts entered an LP over its
+                // last 3 runs is skipped for 2, 4, 8, ... 64 calls
+                let pool = cutpool.pool();
+                let sel = pool.selected_by_origin[k];
+                if self.num_calls[k] > 1 && self.num_calls[k] - 1 >= self.next_call[k] {
+                    if sel > self.last_selected[k] {
+                        self.misses[k] = 0;
+                        self.backoff[k] = 0;
+                    } else {
+                        self.misses[k] += 1;
+                    }
+                    self.last_selected[k] = sel;
+                }
+                if self.num_calls[k] < self.next_call[k] {
+                    continue;
+                }
+                if self.misses[k] >= 3 {
+                    self.backoff[k] = (self.backoff[k] + 1).min(6);
+                    self.next_call[k] = self.num_calls[k] + (1 << self.backoff[k]);
+                    self.misses[k] = 0;
+                    continue;
+                }
+            }
+            // SAFETY: the live pool, not borrowed elsewhere during the call
+            unsafe { (*cutpool.rs()).current_origin = k as u8 };
             let curr = cutpool.num_cuts();
             let r = round.rust(cutpool);
             let seed = cutgen_seed(lp, cutpool);
@@ -125,6 +164,8 @@ impl SepaS {
                     _ => cf::highs_rs_modk_separate(r, seed),
                 }
             }
+            // SAFETY: as above
+            unsafe { (*cutpool.rs()).current_origin = crate::mip::cutpool::NO_ORIGIN };
             self.num_cuts_found[k] += cutpool.num_cuts() - curr;
             if w.get_global_domain().infeasible {
                 return true;

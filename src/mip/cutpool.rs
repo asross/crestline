@@ -227,7 +227,17 @@ pub struct CutPool {
     pub index: i32,
     cut_added: CutAddedFn,
     cut_deleted: CutDeletedFn,
+    /// per row the separator that found it (NO_ORIGIN: another source),
+    /// the origin given to the cuts added now, and per separator the cuts
+    /// selected into an LP by separate (for the separators' backoff)
+    origin: Vec<u8>,
+    pub current_origin: u8,
+    pub selected_by_origin: [u64; NUM_ORIGINS],
 }
+
+/// The separators whose cuts are told apart (tableau, path, mod-k)
+pub const NUM_ORIGINS: usize = 3;
+pub const NO_ORIGIN: u8 = u8::MAX;
 
 /// compute_cut_hash
 fn cut_hash(index: &[i32], value: &[f64], maxabscoef: f64, codes: &mut Vec<u32>) -> u64 {
@@ -298,6 +308,9 @@ impl CutPool {
             index,
             cut_added,
             cut_deleted,
+            origin: Vec::new(),
+            current_origin: NO_ORIGIN,
+            selected_by_origin: [0; NUM_ORIGINS],
         }
     }
 
@@ -614,6 +627,10 @@ impl CutPool {
             let row = s.matrix.add_row(index, value, propagate);
             s.hash_to_cut.entry(h).or_default().push(row);
             let r = row as usize;
+            if s.origin.len() <= r {
+                s.origin.resize(r + 1, NO_ORIGIN);
+            }
+            s.origin[r] = s.current_origin;
             if r == s.rhs.len() {
                 s.rhs.push(0.0);
                 s.ages.push(0);
@@ -830,6 +847,10 @@ impl CutPool {
             if !thread_safe {
                 let s = &mut *p;
                 let c = cut as usize;
+                let o = s.origin.get(c).copied().unwrap_or(NO_ORIGIN) as usize;
+                if o < NUM_ORIGINS {
+                    s.selected_by_origin[o] += 1;
+                }
                 s.age_distribution[s.ages[c] as usize] -= 1;
                 s.num_lp_cuts += 1;
                 s.prop_row_age(cut, -1);
