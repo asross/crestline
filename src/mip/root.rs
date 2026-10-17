@@ -263,7 +263,13 @@ impl MipData {
         #[allow(clippy::never_loop)]
         loop {
             self.start(clk::EVALUATE_ROOT_NODE0);
-            if self.sc().detect_symmetries {
+            // with static orbitopes the symmetries are synced first, so the
+            // detection is spawned after the analytic centre (the task group
+            // syncs its most recent task first)
+            // (on one thread only: on more, the detection runs on another
+            // thread, and an early sync would wait for it)
+            let early_symmetries = o.mip_symmetry_static_orbitopes && crate::parallel::num_threads() == 1;
+            if self.sc().detect_symmetries && !early_symmetries {
                 self.start(clk::START_SYMMETRY_DETECTION);
                 self.o(op::START_SYMMETRY_DETECTION);
                 self.stop(clk::START_SYMMETRY_DETECTION);
@@ -275,6 +281,11 @@ impl MipData {
                 self.start(clk::START_ANALYTIC_CENTRE);
                 self.o(op::START_ANALYTIC_CENTER);
                 self.stop(clk::START_ANALYTIC_CENTRE);
+            }
+            if self.sc().detect_symmetries && early_symmetries {
+                self.start(clk::START_SYMMETRY_DETECTION);
+                self.o(op::START_SYMMETRY_DETECTION);
+                self.stop(clk::START_SYMMETRY_DETECTION);
             }
             self.set_iteration_limit(-1);
             self.o(op::LP_LOAD_MODEL);
@@ -326,6 +337,17 @@ impl MipData {
                 self.stop(clk::SEPARATE_LP_CUTS);
                 status = self.eval_root_lp_timed(w);
                 self.o(op::LP_REMOVE_OBSOLETE_ROWS);
+                if status == lp_status::INFEASIBLE {
+                    return self.clock_off_done();
+                }
+            }
+            // the symmetries before the root cuts and heuristics: the static
+            // orbitope fixings then apply to the whole root
+            let mut symmetries_finished = false;
+            if self.sc().detect_symmetries && early_symmetries {
+                self.finish_symmetry_detection();
+                symmetries_finished = true;
+                status = self.eval_root_lp_timed(w);
                 if status == lp_status::INFEASIBLE {
                     return self.clock_off_done();
                 }
@@ -815,7 +837,7 @@ impl MipData {
                         return false;
                     }
                 }
-                if self.sc().detect_symmetries {
+                if self.sc().detect_symmetries && !symmetries_finished {
                     self.finish_symmetry_detection();
                     status = self.eval_root_lp_timed(w);
                     if status == lp_status::INFEASIBLE {

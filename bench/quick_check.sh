@@ -17,7 +17,7 @@ fail=0
 tmp=$(mktemp -d)
 printf "threads = 1\nrandom_seed = 0\nmip_rel_gap = 0.01\nmip_max_nodes = 200\n" > $tmp/mip.opts
 # crest with the C++ app's setting of its own options that change paths
-{ cat $tmp/mip.opts; echo "mip_graph_lns_cost_perturbation = true"; } > $tmp/crest.opts
+{ cat $tmp/mip.opts; echo "mip_graph_lns_cost_perturbation = true"; echo "mip_symmetry_static_orbitopes = false"; } > $tmp/crest.opts
 filt() { grep -E "iterations:|Objective value|Model status|^  Nodes|^  LP iterations|Primal bound|Dual bound"; }
 n=0
 for f in 25fv47 80bau3b greenbea perold stair afiro adlittle etamacro israel shell woodinfe gas11; do
@@ -39,7 +39,7 @@ gzip -c $I/qptestnw.lp > $tmp/qptestnw.lp.gz
 for f in $I/*.lp $tmp/25fv47.mps.gz $tmp/qptestnw.lp.gz; do
   for o in "" "--presolve off"; do
     a=$(cd $tmp && $CPP $o --options_file mip.opts "$f" 2>&1 | mask)
-    c=$(cd $tmp && $CREST $o --options_file crest.opts "$f" 2>&1 | grep -v "^Set option mip_graph_lns_cost_perturbation" | mask)
+    c=$(cd $tmp && $CREST $o --options_file crest.opts "$f" 2>&1 | grep -v -E "^Set option (mip_graph_lns_cost_perturbation|mip_symmetry_static_orbitopes)" | mask)
     n=$((n+1)); [ "$a" == "$c" ] || { echo "DIFF $(basename $f) $o"; diff <(echo "$a") <(echo "$c") | head -10; fail=1; }
   done
 done

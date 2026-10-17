@@ -903,6 +903,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_symmetry_static_orbitopes",
+        description: "Whether orbitopes with set packing rows are handled in a static row order from the root on (orbitopal fixing of the triangle on the global domain, symmetries finished after the first root LP) rather than in the order of the branching rows (as in HiGHS)",
+        bool_default: true,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,
