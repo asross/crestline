@@ -853,6 +853,23 @@ pub fn solve_lp_simplex(h: &mut CSimplexApp) -> Status {
             let force_phase2 = h.simplex_unscaled_solution_strategy != UNSCALED_DIRECT
                 && scaled_model_status != MS_OBJECTIVE_TARGET;
             return_status = h.status(OP_SOLVE, force_phase2 as i64);
+            // Crestline: the dual simplex on the unscaled LP can end Unknown
+            // with a few primal infeasibilities it cannot remove (rows made
+            // taboo after an unproven dual unboundedness claim:
+            // irish-electricity after IPX and postsolve, up to 3e-5). The
+            // primal simplex from that basis then removes them by a phase
+            // 1, not by the bound shifts of a forced phase 2. Only on this
+            // failure, so other solves are unchanged
+            if return_status != Status::Error
+                && h.lps().sh.model_status == MS_UNKNOWN
+                && h.lps().sh.info.num_primal_infeasibilities > 0
+            {
+                log_dev!(log, LogType::Info, "solveLpSimplex: the unscaled LP ends Unknown: primal simplex phase 1 from its basis\n");
+                *h.options_simplex_strategy() = STRATEGY_PRIMAL;
+                super::primal::NO_FORCED_PHASE2.with(|f| f.set(true));
+                return_status = h.status(OP_SOLVE, 0);
+                super::primal::NO_FORCED_PHASE2.with(|f| f.set(false));
+            }
             solved_unscaled_lp = true;
             if scaled_model_status != MS_OBJECTIVE_BOUND && h.lps().sh.model_status == MS_OBJECTIVE_BOUND {
                 let objective_bound_refinement = h.lps().sh.info.num_dual_infeasibilities > 0;

@@ -717,7 +717,7 @@ impl Primal {
         // Now to do some iterations!
         let num_primal_infeasibility = *self.ekk.num_primal_infeasibilities;
         self.solve_phase = if num_primal_infeasibility > 0 { SOLVE_PHASE_1 } else { SOLVE_PHASE_2 };
-        if force_phase2 {
+        if force_phase2 && !(num_primal_infeasibility > 0 && NO_FORCED_PHASE2.with(|f| f.get())) {
             // Dual infeasibilities without cost perturbation involved
             // fixed variables or were (at most) small, so can easily be
             // removed by flips for and fixed variables shifts for the rest
@@ -2745,4 +2745,11 @@ fn row_ep_2norm_in_scaled_space(e: &EkkView, i_row: usize, row_ep: &HVec) -> f64
         };
     }
     row_ep_2norm
+}
+
+thread_local! {
+    /// Crestline: set by solveLpSimplex's fallback after an unscaled dual
+    /// solve ends Unknown, so that small primal infeasibilities go through
+    /// phase 1 rather than being shifted away in a forced phase 2
+    pub static NO_FORCED_PHASE2: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

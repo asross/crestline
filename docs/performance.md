@@ -957,6 +957,33 @@ thread 1.35-1.39 [0.98, 1.92] (solve order; B&B path), two threads 0.79-0.81.
   dispatch-specific presolve (the slow models are slow per iteration, not
   by iteration count).
 
+## IPX cleanup: primal phase 1 when the original LP ends Unknown (2026-10-17)
+
+irish-electricity's LP relaxation with `solver = ipm` ended with status
+Unknown (the `no_fma` build: Optimal). After IPX, crossover (imprecise)
+and postsolve, the original LP has 3-7 basic variables infeasible by 5e-7
+to 3e-5 (tolerance 1e-7). The dual simplex cleanup, scaled and then
+unscaled, picks each such row, finds no entering column in the ratio test
+(possibly dual unbounded), cannot prove infeasibility and makes the row
+taboo, so it ends with status Unknown. Falling back to the primal simplex
+as it stands does not help: since the squared infeasibility (9e-10) is
+below the tolerance, it forces phase 2, shifts the five bounds, finds
+itself optimal, removes the shifts and hands the same infeasibilities back
+to the dual cleanup.
+
+Fix: when the dual simplex on the unscaled LP ends Unknown with primal
+infeasibilities, `solveLpSimplex` runs the primal simplex from that basis
+with the forced phase 2 off, so it does a phase 1 (no bound perturbation:
+the basis is near-optimal). irish-electricity: Optimal after 47 more
+iterations, objective 2546254.5632 (dual simplex alone: 2546254.5633), max
+primal infeasibility 8.8e-8. Only that failure takes the new path, so every
+solve that ended otherwise is unchanged (the CI oracle matches the C++
+app but for one IIS command line: on klein1 an LP of HiGHS's elasticity
+filter ends Unknown, so HiGHS reports a reducible IIS; crest now finds an
+irreducible one of 50 rows, marked as an expected difference). Rejected: accepting such a solution as optimal at a relative
+tolerance (the residuals are absolute, and 300x the tolerance); the primal
+simplex with its forced phase 2 (above).
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
