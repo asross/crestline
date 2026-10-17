@@ -288,6 +288,34 @@ windows improve less. Two threads were not run: the one-thread result
 already fails the acceptance rule (a regression on one model on both
 architectures, no gain on the time-limited ticks).
 
+## A perturbation bandit (rejected, 2026-10-17)
+
+The deep search already schedules its four moves with a deterministic
+bandit (UCB on the gap closed per LP iteration, an exponential average,
+effort counted in LP iterations, not time), as Hendel (MPC 2022),
+Chmiela et al. (CPAIOR 2023) and Balans (IJCAI 2025) propose. The
+missing arm was `mip_graph_lns_cost_perturbation`. That option is not a
+neighbourhood: it switches the dual simplex cost perturbation of graph
+LNS's LP solves. Tried as `mip_graph_lns_bandit_perturbation` (removed):
+a second two-armed UCB, with the same reward, chooses for each move
+whether its LPs are perturbed.
+
+Runners, one thread, 16 seeds, 180 s, against main (2fd8779):
+
+| | x86_64 | arm64 |
+|---|---|---|
+| solved models, time (geometric mean) | 1.014 | 1.031 |
+| intervals below 1 / above 1 (of 24) | 0 / 3 (all <= 1.008) | 0 / 3 (all <= 1.012) |
+| runs solved (of 400) | 371 -> 373 | 372 -> 371 |
+| `hard_10-03` gap at 180 s / mean primal gap | +0.017 ± 0.045 / +0.011 ± 0.052 | +0.030 ± 0.058 / +0.027 ± 0.082 |
+| `diverse_10-01` gap / mean primal gap | +0.007 ± 0.044 / +0.007 ± 0.032 | +0.008 ± 0.046 / -0.018 ± 0.031 |
+
+The off arm is already the right one on every model (see
+[performance.md](./performance.md): no model is worse without the
+perturbation), so the bandit can only pay for exploring the perturbed
+arm. A run has about 30-50 deep moves, too few for the arms to
+separate. Two threads were not run.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -311,3 +339,4 @@ architectures, no gain on the time-limited ticks).
 - `mip_concurrent_crossover` on two threads: 1.12x the time on the solved
   dispatch models.
 - Time-window neighbourhoods, free or pinned (see above).
+- A bandit over the LNS LPs' cost perturbation (see above).
