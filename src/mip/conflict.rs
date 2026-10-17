@@ -792,6 +792,269 @@ impl<'c> ConflictSet<'c> {
     }
 }
 
+/// A linear constraint sum a_j x_j <= rhs, by column
+type Leq = (BTreeMap<i32, f64>, f64);
+
+/// The bound of `col` at stack position `s` (entries 0..=s applied), the
+/// global bound if that is tighter, and the position of its change (-1 if
+/// global)
+fn bound_at(l: &Dom, g: &Dom, col: i32, s: i32, upper: bool) -> (f64, i32) {
+    let c = col as usize;
+    let (v, pos) = l.bounds().col_bound_at(c, s, upper);
+    if upper && g.col_upper[c] <= v {
+        (g.col_upper[c], -1)
+    } else if !upper && g.col_lower[c] >= v {
+        (g.col_lower[c], -1)
+    } else {
+        (v, pos)
+    }
+}
+
+/// The minimal activity of `row` at stack position `s` (-INF if
+/// unbounded), and the positions of the bound changes it uses
+fn min_activity_at(l: &Dom, g: &Dom, row: &BTreeMap<i32, f64>, s: i32, pos: &mut Vec<(i32, i32)>) -> f64 {
+    pos.clear();
+    let mut act = 0.0;
+    for (&col, &a) in row {
+        let (b, p) = bound_at(l, g, col, s, a < 0.0);
+        if b.is_infinite() {
+            return -INF;
+        }
+        act += a * b;
+        if p != -1 {
+            pos.push((p, col));
+        }
+    }
+    act
+}
+
+fn infeasible_at(l: &Dom, g: &Dom, (row, rhs): &Leq, s: i32, pos: &mut Vec<(i32, i32)>) -> bool {
+    min_activity_at(l, g, row, s, pos) > rhs + max2(10.0, rhs.abs()) * l.feastol
+}
+
+/// The linear reason of the bound change at stack position `pos` of column
+/// `col` (or of the infeasibility if `col` is -1) as a <= constraint
+fn leq_reason(l: &mut Dom, g: &Dom, reason: Reason, pos: i32, col: i32) -> Option<Leq> {
+    let collect = |inds: &[i32], vals: &[f64], s: f64| inds.iter().zip(vals).map(|(&i, &v)| (i, s * v)).collect();
+    match reason.kind {
+        REASON_MODEL_ROW_LOWER | REASON_MODEL_ROW_UPPER => {
+            let (inds, vals) = l.row(reason.index as usize);
+            let (rl, ru) = l.row_bounds(reason.index as usize);
+            if reason.kind == REASON_MODEL_ROW_UPPER {
+                Some((collect(inds, vals, 1.0), ru))
+            } else {
+                Some((collect(inds, vals, -1.0), -rl))
+            }
+        }
+        REASON_OBJECTIVE => {
+            let (inds, vals, rhs) = l.obj_propagation_constraint(pos, col);
+            Some((collect(inds, vals, 1.0), rhs))
+        }
+        // the clique of literal (index >> 1, index & 1) and the literal of
+        // `col` it set false: lit1 + lit2 <= 1, lit(x, 0) = 1 - x
+        REASON_CLIQUE_TABLE if col >= 0 => {
+            let (c1, v1) = (reason.index >> 1, reason.index & 1);
+            let v2 = (l.stack()[pos as usize].boundtype == LOWER) as i32 ^ 1;
+            let mut row = BTreeMap::new();
+            let mut rhs = 1.0;
+            for (c, v) in [(c1, v1), (col, v2)] {
+                *row.entry(c).or_insert(0.0) += if v == 1 { 1.0 } else { -1.0 };
+                rhs -= (v == 0) as i32 as f64;
+            }
+            Some((row, rhs))
+        }
+        k if k >= 0 && (k as usize) < l.num_cutpools() => {
+            let (inds, vals, rhs) = l.cut(k as usize, reason.index as usize);
+            Some((collect(inds, vals, 1.0), rhs))
+        }
+        // a conflict of binary columns: the sum of its literals <= len - 1
+        k if k >= 0 => {
+            let (pool, index) = (k as usize - l.num_cutpools(), reason.index as usize);
+            if l.conflict_deleted(pool, index) {
+                return None;
+            }
+            let mut row = BTreeMap::new();
+            let mut rhs = -1.0;
+            for e in l.conflict(pool, index) {
+                let one = e.boundtype == LOWER;
+                if !g.is_binary(e.column as usize) || row.contains_key(&e.column) || (e.boundval > 0.5) != one {
+                    return None;
+                }
+                row.insert(e.column, if one { 1.0 } else { -1.0 });
+                rhs += one as i32 as f64;
+            }
+            Some((row, rhs))
+        }
+        _ => None,
+    }
+}
+
+/// conflict + lambda * reason, cancelling `col`, scaled to a largest
+/// coefficient of 1, with negligible coefficients relaxed away by global
+/// bounds
+fn combine(g: &Dom, (row, rhs): &Leq, lambda: f64, (rrow, rrhs): &Leq, col: i32) -> Option<Leq> {
+    let mut out = row.clone();
+    for (&j, &v) in rrow {
+        *out.entry(j).or_insert(0.0) += lambda * v;
+    }
+    out.remove(&col);
+    let mut rhs = rhs + lambda * rrhs;
+    let maxabs = out.values().fold(0.0f64, |m, v| m.max(v.abs()));
+    if maxabs == 0.0 || !rhs.is_finite() {
+        return None;
+    }
+    out.retain(|&j, v| {
+        if v.abs() > 1e-9 * maxabs {
+            return true;
+        }
+        let b = if *v > 0.0 { g.col_lower[j as usize] } else { g.col_upper[j as usize] };
+        if b.is_infinite() {
+            return true;
+        }
+        rhs -= *v * b;
+        false
+    });
+    out.values_mut().for_each(|v| *v /= maxabs);
+    Some((out, rhs / maxabs))
+}
+
+/// The cMIR reduction of a reason propagating the integral column `r` at
+/// stack position `p` (Mexi et al. 2025, Proposition 2): in >= form with
+/// the coefficient of r scaled to 1, the columns whose bound the
+/// propagation used are shifted to the global bound away from it and the
+/// others complemented to the global bound it used, then the MIR formula
+fn reduce(l: &Dom, g: &Dom, (rrow, rrhs): &Leq, r: i32, p: i32) -> Option<Leq> {
+    let d = rrow.get(&r)?.abs();
+    // >= form: sum a_j x_j >= b
+    let mut b = -rrhs / d;
+    // (column, coefficient of the shifted column, its substituted bound,
+    // complemented)
+    let mut terms = Vec::with_capacity(rrow.len());
+    for (&j, &v) in rrow {
+        let a = -v / d;
+        let ju = j as usize;
+        let (glb, gub) = (g.col_lower[ju], g.col_upper[ju]);
+        // the bound in the maximal activity of the >= form
+        let upper = a > 0.0;
+        let relaxable = j != r && bound_at(l, g, j, p - 1, upper).1 == -1;
+        // complement (x = u - z) iff the coefficient on z comes out as wanted:
+        // +|a| for r and the bounds used, -|a| for the relaxable columns
+        let compl = (a < 0.0) != relaxable;
+        let bnd = if compl { gub } else { glb };
+        if bnd.is_infinite() {
+            return None;
+        }
+        b -= a * bnd;
+        terms.push((j, if compl { -a } else { a }, bnd, compl));
+    }
+    let f0 = b - b.floor();
+    if !(1e-6..=1.0 - 1e-6).contains(&f0) {
+        return None;
+    }
+    let mut out = BTreeMap::new();
+    let mut rhs = b.ceil();
+    for (j, a, bnd, compl) in terms {
+        let c = if l.is_continuous(j as usize) {
+            if a > 0.0 {
+                a / f0
+            } else {
+                0.0
+            }
+        } else {
+            let fa = a - a.floor();
+            a.floor() + if fa < 1e-9 { 0.0 } else { min2(1.0, fa / f0) }
+        };
+        if c == 0.0 {
+            continue;
+        }
+        // c * y with x = bnd + y, or c * z with x = bnd - z
+        if compl {
+            out.insert(j, -c);
+            rhs -= c * bnd;
+        } else {
+            out.insert(j, c);
+            rhs += c * bnd;
+        }
+    }
+    // back to <= form
+    out.values_mut().for_each(|v: &mut f64| *v = -*v);
+    Some((out, -rhs))
+}
+
+/// Cut-based conflict analysis (Mexi, Serrano, Berthold, Gleixner and
+/// Nordström, INFORMS JoC 2025): starting from the constraint that is
+/// infeasible in the local domain (the proof, or the reason of the
+/// infeasibility), resolve the latest bound change it needs with the linear
+/// constraint that propagated it (cMIR-reduced if the plain combination is
+/// not infeasible before it) until one bound change of the last decision
+/// level is left. The learned <= constraint, if any resolution was made
+pub(crate) fn learn_linear(c: &CConflict, proof: Option<(&[i32], &[f64], f64)>) -> Option<(Vec<i32>, Vec<f64>, f64)> {
+    // SAFETY: as ConflictSet::views, nothing is added to the pools here
+    let (mut l, g) = unsafe { (CDomain::view(c.local as *mut CDomain), CDomain::view(c.global as *mut CDomain)) };
+    let (stack, reasons, branchpos) = (l.stack(), l.reasons(), l.branch_positions());
+    let (mut cur, mut s) = match proof {
+        Some((i, v, r)) => ((i.iter().copied().zip(v.iter().copied()).collect(), r), stack.len() as i32 - 1),
+        None => {
+            let (inf, reason, pos) = l.infeasibility();
+            if !inf {
+                return None;
+            }
+            (leq_reason(&mut l, &g, reason, pos, -1)?, pos)
+        }
+    };
+    let maxlen = (1000 + 3 * c.num_integral as usize) / 10;
+    let mut pos = Vec::new();
+    let mut num_resolved = 0;
+    for _ in 0..2 * stack.len() + 2 {
+        if !infeasible_at(&l, &g, &cur, s, &mut pos) {
+            return None;
+        }
+        let Some(&(p, col)) = pos.iter().max() else { break };
+        // the last decision level of the bound changes used: stop at a
+        // single one (the first UIP)
+        let level = branchpos.partition_point(|&bp| bp <= p);
+        let start = if level == 0 { 0 } else { branchpos[level - 1] };
+        if pos.iter().filter(|&&(q, _)| q >= start).count() <= 1 {
+            break;
+        }
+        // a bound change not needed: go back past it
+        if infeasible_at(&l, &g, &cur, p - 1, &mut pos) {
+            s = p - 1;
+            continue;
+        }
+        let Some(reason) = leq_reason(&mut l, &g, reasons[p as usize], p, col) else { break };
+        let a = cur.0[&col];
+        let ar = reason.0.get(&col).copied().unwrap_or(0.0);
+        if ar == 0.0 || (ar > 0.0) == (a > 0.0) {
+            break;
+        }
+        let mut next = combine(&g, &cur, a / -ar, &reason, col);
+        if !next.as_ref().is_some_and(|n| infeasible_at(&l, &g, n, p - 1, &mut pos)) {
+            next = None;
+            if !l.is_continuous(col as usize) {
+                if let Some(red) = reduce(&l, &g, &reason, col, p) {
+                    let ar = red.0.get(&col).copied().unwrap_or(0.0);
+                    if ar != 0.0 && (ar > 0.0) != (a > 0.0) {
+                        next = combine(&g, &cur, a / -ar, &red, col).filter(|n| infeasible_at(&l, &g, n, p - 1, &mut pos));
+                    }
+                }
+            }
+        }
+        let Some(next) = next else { break };
+        cur = next;
+        s = p - 1;
+        num_resolved += 1;
+        if cur.0.len() > maxlen {
+            return None;
+        }
+    }
+    if num_resolved == 0 {
+        return None;
+    }
+    let (row, rhs) = cur;
+    Some((row.keys().copied().collect(), row.values().copied().collect(), rhs))
+}
+
 pub mod ffi {
     //! The `extern "C"` entry points of conflict analysis
     use super::*;

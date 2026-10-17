@@ -13,7 +13,9 @@ Suites (instances are downloaded at run time into --cache, never committed):
   lp           LP relaxations of the MIPLIB benchmark set (solve_relaxation)
                + Mittelmann LP test set models (plato.asu.edu/ftp/lptestset)
 --select keeps only the named instances (fnmatch globs); --opts are HiGHS
-options for crest and highs (e.g. solver=ipm), not passed to SCIP or CBC.
+options for crest and highs (e.g. solver=ipm), not passed to SCIP or CBC;
+NAME:K=V only for solver NAME, so crestX=BIN (any name starting with crest)
+with --opts crestX:K=V is an A/B of a crest option against crest.
 
 run: on each instance of the shard all solvers run back to back (order
 rotating with the instance), so they see the same CPU. Wall time includes
@@ -136,11 +138,13 @@ def norm(raw):
 
 
 def solver_cmd(solver, binary, inst, a, lp, scratch):
-    if solver in ('crest', 'highs'):
+    if solver.startswith('crest') or solver == 'highs':
         opts = f'{scratch}/{solver}.opts'
+        # NAME:K=V options apply to solver NAME only (A/B of crest options)
+        mine = [o.split(':', 1)[-1] for o in a.opts if ':' not in o.split('=', 1)[0] or o.startswith(solver + ':')]
         with open(opts, 'w') as f:
             f.write(f'threads = {a.threads}\ntime_limit = {a.tl}\n' + ('solve_relaxation = true\n' if lp else '') +
-                    ''.join(o.replace('=', ' = ', 1) + '\n' for o in a.opts))
+                    ''.join(o.replace('=', ' = ', 1) + '\n' for o in mine))
         return [binary, '--options_file', opts, inst]
     if solver == 'scip':
         return [sys.executable, os.path.abspath(__file__), 'scip', inst, str(a.tl), str(a.threads)]
@@ -151,7 +155,7 @@ def solver_cmd(solver, binary, inst, a, lp, scratch):
 def parse(solver, out, wall):
     g = lambda pat: (m.group(1).strip() if (m := re.search(pat, out, re.M)) else None)
     traj = []
-    if solver in ('crest', 'highs'):
+    if solver.startswith('crest') or solver == 'highs':
         last = None
         for l in out.splitlines():
             m = LOGLINE.match(l)
@@ -242,7 +246,7 @@ def run(a):
     cpu, arch = cpu_model(), platform.machine().replace('aarch64', 'arm64').replace('x86_64', 'x64')
     ver = {}
     for s, b in solvers:
-        if s in ('crest', 'highs'):
+        if s.startswith('crest') or s == 'highs':
             ver[s] = subprocess.run([b, '--version'], capture_output=True, text=True).stdout.strip().splitlines()[0]
         elif s == 'cbc':
             ver[s] = (re.search(r'Version: (\S+)', subprocess.run([b or 'cbc', '-quit'], capture_output=True, text=True).stdout) or [0, '?'])[1]
