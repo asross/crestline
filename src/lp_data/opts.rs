@@ -591,6 +591,7 @@ options! {
     mip_concurrent_crossover: bool = false;
     mip_root_lp_devex_density: double = 0.7;
     mip_graph_lns_cost_perturbation: bool = false;
+    mip_conflict_linear: bool = false;
     mip_root_lp_ipx: bool = false;
     mip_root_lp_effort_from_basis: bool = false;
     mip_graph_lns_deep_early: bool = false;

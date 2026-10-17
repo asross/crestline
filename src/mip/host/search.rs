@@ -237,7 +237,7 @@ impl SearchS {
         if gd.infeasible {
             return;
         }
-        self.localdom.conflict_analysis_proof(&inds, &vals, rhs, w.get_conflict_pool(), gd, self.pscost());
+        self.localdom.conflict_analysis_proof(&inds, &vals, rhs, w.get_conflict_pool(), w.get_cut_pool(), gd, self.pscost());
         let (mut inds, mut vals, mut rhs) = (inds, vals, rhs);
         super::sepa::generate_conflict(self.lp(), w.get_cut_pool(), &self.localdom, gd, &mut inds, &mut vals, &mut rhs);
     }
@@ -254,7 +254,7 @@ impl SearchS {
         if gd.infeasible {
             return;
         }
-        self.localdom.conflict_analysis_proof(&inds, &vals, rhs, w.get_conflict_pool(), gd, self.pscost());
+        self.localdom.conflict_analysis_proof(&inds, &vals, rhs, w.get_conflict_pool(), w.get_cut_pool(), gd, self.pscost());
         super::sepa::generate_conflict(self.lp(), w.get_cut_pool(), &self.localdom, gd, &mut inds, &mut vals, &mut rhs);
     }
 
@@ -386,7 +386,7 @@ unsafe extern "C" fn clear_changed_cols(p: *mut c_void, start: i32) {
 unsafe extern "C" fn conflict_analysis(p: *mut c_void) {
     let x = s(p);
     let w = &*x.worker;
-    x.localdom.conflict_analysis(w.get_conflict_pool(), w.get_global_domain(), &*x.pseudocost);
+    x.localdom.conflict_analysis(w.get_conflict_pool(), w.get_cut_pool(), w.get_global_domain(), &*x.pseudocost);
 }
 unsafe extern "C" fn bounds(p: *mut c_void, lo: *mut *const f64, up: *mut *const f64) {
     *lo = s(p).localdom.col_lower().as_ptr();

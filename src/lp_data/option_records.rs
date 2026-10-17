@@ -873,6 +873,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_conflict_linear",
+        description: "Whether conflict analysis also learns linear constraints (cut-based conflict analysis: resolving the infeasible row or proof with the rows that propagated its bounds), added to the cut pool",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_root_lp_ipx",
         description: "Whether IPX with crossover alone solves the MIP's first root LP, if it has at least 10000 nonzeros (and no basis), rather than the dual simplex or a race of the two",
         bool_default: false,

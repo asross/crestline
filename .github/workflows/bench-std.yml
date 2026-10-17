@@ -14,7 +14,7 @@ on:
       suite:
         description: "miplib (240), miplib-easy (66), mipfeas (233) or lp (miplib)"
       solvers:
-        description: "Comma-separated: crest, highs, scip, cbc (crest,highs,scip)"
+        description: "Comma-separated: crest, highs, scip, cbc (crest,highs,scip); crestX: crest again, with options crestX:K=V"
       time_limit:
         description: "Time limit, s (300)"
       threads:
@@ -124,7 +124,7 @@ jobs:
         run: |
           set -f  # SELECT holds globs
           s=; for x in ${SOLVERS//,/ }; do
-            case $x in crest) s+=crest=bins/crest,;; highs) s+=highs=highs/bin/highs,;; *) s+=$x,;; esac
+            case $x in crest*) s+=$x=bins/crest,;; highs) s+=highs=highs/bin/highs,;; *) s+=$x,;; esac
           done
           python3 bench/std.py run results-$ARCH-$SHARD.jsonl --suite "$SUITE" --solvers "$s" --tl "$TIME_LIMIT" \
             --threads "$THREADS" --shard "$SHARD/$SHARDS" ${SELECT:+--select $SELECT} ${OPTIONS:+--opts $OPTIONS}

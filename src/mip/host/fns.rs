@@ -185,7 +185,7 @@ unsafe extern "C" fn dom_backtrack(d: P) -> DomChg {
 }
 unsafe extern "C" fn dom_conflict_analysis(d: P, w: P) {
     let w = wk(w);
-    dom(d).conflict_analysis(w.get_conflict_pool(), w.get_global_domain(), w.get_pseudocost());
+    dom(d).conflict_analysis(w.get_conflict_pool(), w.get_cut_pool(), w.get_global_domain(), w.get_pseudocost());
 }
 unsafe extern "C" fn dom_stack(d: P, n: *mut i32) -> *const DomChg {
     let s = dom(d).stack();
