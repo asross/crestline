@@ -190,7 +190,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_root_lp_ipx` | false (see [performance.md](./performance.md)) |
 | `mip_root_lp_effort_from_basis` | false (see [performance.md](./performance.md)) |
 | `mip_graph_lns_deep_early` | false (see above and [performance.md](./performance.md)) |
-| `mip_symmetry_static_orbitopes` | true (packing orbitopes from the root; see [performance.md](./performance.md)) |
+| `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
