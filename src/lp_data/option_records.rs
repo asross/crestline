@@ -641,6 +641,16 @@ pub const RECORDS: &[Meta] = &[
         str_default: "",
     },
     Meta {
+        type_: INT,
+        advanced: false,
+        name: "mip_start_trust_radius",
+        description: "If a MIP start is not feasible and its integer values cannot be completed, search for a solution within this many binary changes of it (a sub-MIP with a local branching row, the radius doubled up to three times; 0: max(10, 2% of the start's binaries); -1: discard the start)",
+        bool_default: false,
+        int: (-1, -1, 2147483647),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
         type_: BOOL,
         advanced: false,
         name: "mip_improving_solution_save",

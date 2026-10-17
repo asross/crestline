@@ -500,6 +500,7 @@ impl Opts {
             output_flag: &self.output_flag,
             log_dev_level: &self.log_dev_level,
             simplex_strategy: self.simplex_strategy,
+            mip_start_trust_radius: self.mip_start_trust_radius,
         }
     }
 }
@@ -567,6 +568,7 @@ options! {
     mip_max_nodes: int = i32::MAX;
     mip_max_stall_nodes: int = i32::MAX;
     mip_max_start_nodes: int = 500;
+    mip_start_trust_radius: int = -1;
     mip_improving_solution_save: bool = false;
     mip_improving_solution_report_sparse: bool = false;
     mip_improving_solution_file: string = b"";

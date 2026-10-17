@@ -103,6 +103,8 @@ pub mod heur {
     /// the deep graph LNS search from the first LP solution, with an LP
     /// iteration budget (the op's value; negative: the usual one)
     pub const GRAPH_LNS_DEEP_FIRST: i64 = 13;
+    /// the trust region around the MIP start (mip_start_trust_radius)
+    pub const TRUST_REGION: i64 = 14;
 }
 
 /// The profiling clocks (indices of HighsPrimalHeuristics.cpp's
@@ -329,6 +331,9 @@ impl MipData {
                 if status == lp_status::INFEASIBLE {
                     return self.clock_off_done();
                 }
+            }
+            if !self.trust_ref().is_empty() && !self.concurrent_helper && self.sc().num_restarts == 0 {
+                self.heur(w, heur::TRUST_REGION);
             }
             self.set_iteration_limit(10000.max((10.0 * self.sc().avgrootlpiters) as i32));
             // make sure first line after solving root LP is printed

@@ -30,6 +30,8 @@ on:
         description: "Runners per architecture (16)"
       parallel:
         description: "Pairs at once on a runner, of 4 vCPUs (1)"
+      starts:
+        description: "MIP starts for configs with read_solution_file=@: sibling or shift (none; bench/dispatch.py starts)"
 
 env:
   CONFIGS: "${{ inputs.configs || 'main@main: ; head:' }}"
@@ -41,6 +43,7 @@ env:
   ARCHS: "${{ inputs.archs || 'x64,arm64' }}"
   SHARDS: "${{ inputs.shards || '16' }}"
   PARALLEL: "${{ inputs.parallel || '1' }}"
+  STARTS: "${{ inputs.starts || '' }}"
 
 jobs:
   plan:
@@ -123,6 +126,8 @@ jobs:
           pattern: crest-${{ matrix.arch }}-*
           path: bins
           merge-multiple: true
+      # the start files show the model: made here, in the runner's temp
+      # directory, and never uploaded
       - env:
           CFGS: ${{ needs.plan.outputs.cfgs }}
           SHARD: ${{ matrix.shard }}
@@ -130,9 +135,13 @@ jobs:
         run: |
           chmod +x bins/*/crest
           inst=(); for g in $INSTANCES; do inst+=("dispatch/instances/$g"); done
+          if [ -n "$STARTS" ]; then
+            b=${CFGS%% *}; b=${b#*=}; b=${b%%,*}
+            python3 bench/dispatch.py starts "$RUNNER_TEMP/starts" "$b" --inst "${inst[@]}" $([ "$STARTS" = shift ] && echo --shift)
+          fi
           python3 bench/dispatch.py run results-$ARCH-$SHARD.jsonl \
             --cfg $CFGS --inst "${inst[@]}" --seeds "$SEEDS" --tl "$TIME_LIMIT" \
-            --threads "$THREADS" --gap "$GAP" --shard "$SHARD/$SHARDS" -j "$PARALLEL"
+            --threads "$THREADS" --gap "$GAP" --shard "$SHARD/$SHARDS" -j "$PARALLEL" --starts "$RUNNER_TEMP/starts"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -122,6 +122,10 @@ pub struct SubMipSpec {
     pub mip_detect_symmetry: bool,
     /// the sub-MIP's lns_target_reached_
     pub lns_target: *const super::concurrent::Pool,
+    /// a row added to the model (num_col coefficients, or null) and its
+    /// upper bound
+    pub row_coef: *const f64,
+    pub row_upper: f64,
 }
 
 /// The C++ operations, implemented in highs/mip/HighsMipRust.cpp
@@ -356,6 +360,8 @@ pub struct MipOptions {
     pub mip_root_lp_ipx: bool,
     pub mip_root_lp_effort_from_basis: bool,
     pub mip_graph_lns_deep_early: bool,
+    pub mip_start_trust_radius: i32,
+    pub mip_max_start_nodes: i32,
 }
 
 /// The original model (for solutions in the original space)
@@ -424,6 +430,8 @@ pub struct MipData {
     pub firstlpsol: *const StdVec<f64>,
     pub analytic_center: *const StdVec<f64>,
     pub incumbent: *const StdVec<f64>,
+    /// the MIP start kept for the trust region (empty if none)
+    pub trust_ref: *const Vec<f64>,
     pub scalars: *mut MipScalars,
     pub clique: *const super::clique::CliqueTable,
     pub redcost: *const super::redcost::RedcostFixing,
@@ -467,7 +475,7 @@ impl MipData {
     vecs!(a_start: i32, a_index: i32, a_value: f64, col_cost: f64, col_lower: f64, col_upper: f64,
           row_lower: f64, row_upper: f64, integrality: u8, ar_start: i32, ar_index: i32, ar_value: f64,
           uplocks: i32, downlocks: i32, integer_cols: i32, integral_cols: i32, continuous_cols: i32,
-          rootlpsol: f64, firstlpsol: f64, analytic_center: f64, incumbent: f64);
+          rootlpsol: f64, firstlpsol: f64, analytic_center: f64, incumbent: f64, trust_ref: f64);
     vals!(feastol: f64, lower_bound: f64, upper_bound: f64, upper_limit: f64, optimality_limit: f64,
           avgrootlpiters: f64, firstrootlpiters: i64, total_lp_iterations: i64,
           heuristic_lp_iterations: i64, sb_lp_iterations: i64, num_improving_sols: i32, root_lp_credit: i64);
@@ -895,6 +903,7 @@ pub fn sub_mip(
     start: Option<&[f64]>,
     time_cap: f64,
     abs_gap: f64,
+    row: Option<(&[f64], f64)>,
     sol: &mut [f64],
 ) -> SubMipResult {
     // the start's row activities (calculateRowValuesQuad, which needs a
@@ -928,11 +937,14 @@ pub fn sub_mip(
             (Some(_), Some(p)) => p.run_rins as i32 | (p.run_rens as i32) << 1 | (p.run_root_reduced_cost as i32) << 2,
             _ => -1,
         },
-        // with only root presolve allowed, none in the sub-MIP
-        presolve: !m.root_presolve_only,
+        // with only root presolve allowed, none in the sub-MIP; none with
+        // an added row, which keeps the root basis
+        presolve: !m.root_presolve_only && row.is_none(),
         output_flag: false,
         mip_detect_symmetry: false,
         lns_target: m.sub_mip_lns_target(),
+        row_coef: row.map_or(std::ptr::null(), |r| r.0.as_ptr()),
+        row_upper: row.map_or(0.0, |r| r.1),
     };
     let mut r = SubMipResult::default();
     c!(sub_mip, m.mipsolver, w.p, &spec, &mut r, sol.as_mut_ptr());

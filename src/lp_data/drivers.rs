@@ -254,9 +254,14 @@ impl Run<'_> {
     /// the rest
     pub fn complete_solution_from_discrete_assignment(&self) -> Status {
         let contains_undefined_values = self.op0(Op::SolutionHasUndefined) != 0;
+        let trust = self.c.o.mip_start_trust_radius >= 0;
         if !contains_undefined_values && self.op0(Op::SolutionFeasible) != 0 {
+            if trust {
+                log_user!(self.log(), LogType::Info, "MIP start accepted\n");
+            }
             return Status::Ok;
         }
+        let mut trust_start = None;
         self.op(Op::SaveColBounds, 0, std::ptr::null_mut());
         let (pft, mft) = (self.c.o.primal_feasibility_tolerance, self.c.o.mip_feasibility_tolerance);
         let mut num_fixed = 0;
@@ -270,6 +275,9 @@ impl Run<'_> {
             // until the next step
             let (lower, upper, integrality, col_value) =
                 unsafe { (lp.col_lower.get_mut(), lp.col_upper.get_mut(), lp.integrality.get_mut(), s.col_value.get_mut()) };
+            if trust {
+                trust_start = Some(col_value.to_vec());
+            }
             for j in 0..num_col as usize {
                 let primal = col_value[j];
                 col_value[j] = lower[j];
@@ -348,6 +356,13 @@ impl Run<'_> {
         if return_status == Status::Error {
             log_user!(self.log(), LogType::Error, "Highs::optimizeModel() error trying to find feasible solution\n");
             return Status::Error;
+        }
+        if let Some(mut start) = trust_start {
+            // kept for the trust region search if not completed
+            let completed = self.op(Op::TrustStart, 0, &mut start as *mut Vec<f64> as *mut c_void) == 0;
+            if completed {
+                log_user!(self.log(), LogType::Info, "MIP start completed\n");
+            }
         }
         Status::Ok
     }

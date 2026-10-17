@@ -152,6 +152,7 @@ pub struct ROptions {
     pub output_flag: *const bool,
     pub log_dev_level: *const i32,
     pub simplex_strategy: i32,
+    pub mip_start_trust_radius: i32,
 }
 
 /// Dimensions and properties of model_ (0) or the reduced LP (1)
@@ -318,6 +319,9 @@ pub enum Op {
     /// options_.mip_max_nodes saved and set to mip_max_start_nodes (arg 0)
     /// or restored (1)
     SwapMipMaxNodes,
+    /// mip_start_trust_radius: the start's column values (p, a Vec<f64>)
+    /// kept for the MIP solve if solution_ is not valid -> 1 if kept
+    TrustStart,
     /// optimizeModel(), then resetProfiling() if profiling -> status
     OptimizeModel,
     /// The view of solution_ into p (SolutionView)

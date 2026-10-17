@@ -81,6 +81,11 @@ pub struct MipSolver {
     pub primal_dual_integral: f64,
     pub improving_file_open: bool,
     pub saved_objective_and_solution: Vec<(f64, Vec<f64>)>,
+    /// mip_start_trust_radius: the MIP start that was not completed (the
+    /// original space, infinite where not given), and its reduction to
+    /// the presolved space
+    pub trust_start: Vec<f64>,
+    pub trust_ref: Vec<f64>,
     pub submip: bool,
     pub submip_level: i32,
     pub max_submip_level: i32,
@@ -140,6 +145,8 @@ impl MipSolver {
             primal_dual_integral: 0.0,
             improving_file_open: false,
             saved_objective_and_solution: Vec::new(),
+            trust_start: Vec::new(),
+            trust_ref: Vec::new(),
             submip,
             submip_level,
             max_submip_level: 0,
@@ -352,6 +359,7 @@ impl MipSolver {
             firstlpsol: &d.vecs.firstlpsol,
             analytic_center: &d.vecs.analytic_center,
             incumbent: &d.vecs.incumbent,
+            trust_ref: &msm.trust_ref,
             scalars: &mut *d.sc,
             clique: &*d.cliquetable,
             redcost: &*d.redcostfixing,
@@ -416,6 +424,8 @@ impl MipSolver {
                 mip_root_lp_ipx: o.mip_root_lp_ipx,
                 mip_root_lp_effort_from_basis: o.mip_root_lp_effort_from_basis,
                 mip_graph_lns_deep_early: o.mip_graph_lns_deep_early,
+                mip_start_trust_radius: o.mip_start_trust_radius,
+                mip_max_start_nodes: o.mip_max_start_nodes,
             },
             helper_pool: self.concurrent_lns,
             lns_target: self.lns_target_reached,

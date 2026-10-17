@@ -102,6 +102,8 @@ pub mod op {
     /// the callback's output cleared and its cut pool fields set from the
     /// LP relaxation's cuts
     pub const CUT_POOL_OUTPUT: i32 = 337;
+    /// the trust region's MIP start reduced to the presolved space
+    pub const REDUCE_TRUST_START: i32 = 338;
 }
 
 /// HighsMipSolverData's vectors read through CMipFns::vec_ptr
@@ -555,6 +557,8 @@ impl MipData {
                 debug_assert!(!interrupt);
             }
         }
+
+        self.o(op::REDUCE_TRUST_START);
 
         if self.num_col == 0 {
             self.add_incumbent_rs(&[], 0.0, src::EMPTY_MIP, true, false);

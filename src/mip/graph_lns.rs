@@ -725,7 +725,17 @@ impl Heur {
                 s.lp.num_lp_iterations() - dive_iters
             );
         }
-        if m.upper_limit() == INF || m.incumbent().len() != n {
+        // mip_start_trust_radius: until there is an incumbent, the deep
+        // search's neighbourhoods are around the MIP start (rounded LP
+        // values where it gives none)
+        let t = m.trust_ref();
+        let start_ref: Vec<f64> = if deep && m.incumbent().len() != n && t.len() == n {
+            (0..n).map(|j| if t[j].is_finite() { t[j] } else { relaxationsol[j] }).collect()
+        } else {
+            Vec::new()
+        };
+        let reference = || if m.incumbent().len() == n { m.incumbent() } else { &start_ref[..] };
+        if start_ref.is_empty() && (m.upper_limit() == INF || m.incumbent().len() != n) {
             s.charge_iterations();
             return;
         }
@@ -807,7 +817,7 @@ impl Heur {
                 // graph LNS runs outside the parallel lock: the heuristics'
                 // own generator
                 let rng = s.h.own_rng();
-                s.lns.build(&s.g, ty as i32, size.max(0) as usize, deep, m.incumbent(), relaxationsol, glo, gup, rng);
+                s.lns.build(&s.g, ty as i32, size.max(0) as usize, deep, reference(), relaxationsol, glo, gup, rng);
             }
             let neighbourhood = s.lns.neighbourhood.clone();
 
@@ -821,7 +831,7 @@ impl Heur {
                 if s.lns.in_n[col] != 0 {
                     continue;
                 }
-                let val = rounded(&dom.bnd(), m.incumbent(), col);
+                let val = rounded(&dom.bnd(), reference(), col);
                 if !fix_to(&dom, c, val) {
                     feasible = false;
                     break;
@@ -849,7 +859,7 @@ impl Heur {
                 // SAFETY: as above
                 let (glo, gup) = unsafe { bound_slices(&gd.bnd(), n) };
                 let rc = s.lp.col_dual().to_vec();
-                s.lns.update_promise(m.incumbent(), glo, gup, &rc);
+                s.lns.update_promise(reference(), glo, gup, &rc);
             }
             let pruned = !usable(st) || s.lp.objective() >= w.upper_limit();
             if !pruned && !dived {

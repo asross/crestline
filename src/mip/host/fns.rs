@@ -333,6 +333,21 @@ unsafe extern "C" fn sub_mip(m: P, w: P, spec: *const SubMipSpec, r: *mut SubMip
     submip.col_upper = crate::ffi::sl(spec.col_upper, n as i32).to_vec();
     submip.integrality = ms.model().integrality.clone();
     submip.offset = 0.0;
+    let mut basis = basis;
+    if !spec.row_coef.is_null() {
+        // a repair: the first solution found will do
+        o.mip_max_improving_sols = 1;
+        // one more row: sum of row_coef[j] x[j] <= row_upper, basic
+        let c = crate::ffi::sl(spec.row_coef, n as i32);
+        let (index, value): (Vec<i32>, Vec<f64>) = (0..n).filter(|&j| c[j] != 0.0).map(|j| (j as i32, c[j])).unzip();
+        submip.a.add_rows(&[0, index.len() as i32], &index, &value, 1);
+        submip.row_lower.push(-f64::INFINITY);
+        submip.row_upper.push(spec.row_upper);
+        submip.num_row += 1;
+        if !basis.b.row_status.is_empty() {
+            basis.b.row_status.push(crate::presolve::postsolve::BASIC);
+        }
+    }
     o.mip_max_leaves = spec.mip_max_leaves;
     o.output_flag = spec.output_flag;
     o.mip_max_nodes = spec.mip_max_nodes;
@@ -545,6 +560,7 @@ struct HelperData {
     model: Lp,
     basis: Basis,
     host: P,
+    trust: Vec<f64>,
 }
 
 unsafe extern "C" fn helper_new(m: P, time_left: f64) -> P {
@@ -561,7 +577,13 @@ unsafe extern "C" fn helper_new(m: P, time_left: f64) -> P {
     o.mip_concurrent_helper = false;
     o.random_seed = ms.opts.random_seed + 1;
     o.time_limit = time_left;
-    let data = HelperData { opts: o, model: ms.model().clone(), basis: ms.d().firstrootbasis.clone(), host: ms.host };
+    let data = HelperData {
+        opts: o,
+        model: ms.model().clone(),
+        basis: ms.d().firstrootbasis.clone(),
+        host: ms.host,
+        trust: ms.trust_ref.clone(),
+    };
     Box::into_raw(Box::new(data)) as P
 }
 
@@ -570,8 +592,9 @@ unsafe extern "C" fn helper_new(m: P, time_left: f64) -> P {
 unsafe extern "C" fn helper_run(d: P, pool: *const c_void) {
     let data = Box::from_raw(d as *mut HelperData);
     crate::parallel::initialize_thread(1);
-    let HelperData { opts, model, basis, host } = *data;
+    let HelperData { opts, model, basis, host, trust } = *data;
     let mut helper = MipSolver::new(host, Prof::none(), opts, Log::none(), model, Vec::new(), None, true, 1);
+    helper.trust_start = trust;
     helper.concurrent_lns = pool as *const Pool;
     helper.rootbasis = &basis;
     run(&mut helper);
@@ -911,6 +934,7 @@ unsafe fn root_op(ms: &mut MipSolver, which: i32, w: P, i: i64, x: f64) -> f64 {
                     heur(ms, w, 6, Some(&s))
                 }
                 13 => graph_lns(ms, w, &fl, true, x as i64),
+                14 => heur(ms, w, 9, None),
                 _ => {
                     let s = d.get_lp().col_value().to_vec();
                     heur(ms, w, 7, Some(&s))
@@ -1765,6 +1789,11 @@ unsafe fn setup_op(ms: &mut MipSolver, which: i32, _w: P, i: i64, _x: f64) -> f6
         306 => {
             let x = super::presolve::reduced_primal(&d.postsolve_stack, &ms.solution);
             d.vecs.set_f64(crate::mip::mip_data::vec::INCUMBENT, &x);
+        }
+        338 => {
+            if ms.trust_start.len() == ms.orig().num_col as usize {
+                ms.trust_ref = super::presolve::reduced_primal(&d.postsolve_stack, &ms.trust_start);
+            }
         }
         307 => {
             *d.redcostfixing = crate::mip::redcost::RedcostFixing::new();

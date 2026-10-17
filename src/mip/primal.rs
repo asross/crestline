@@ -316,7 +316,7 @@ impl Heur {
             abs_gap = m.feastol() * cmax(curr_abs_gap, 1000.0);
         }
         let mut sol = vec![0.0; m.num_col as usize];
-        let r = glue::sub_mip(m, w, lp, lo, up, maxleaves, maxnodes, stallnodes, start, time_cap, abs_gap, &mut sol);
+        let r = glue::sub_mip(m, w, lp, lo, up, maxleaves, maxnodes, stallnodes, start, time_cap, abs_gap, None, &mut sol);
         let hs = w.heur();
         hs.max_submip_level = hs.max_submip_level.max(r.max_submip_level + 1);
         if r.termination_status != MODEL_STATUS_NOTSET {
@@ -388,6 +388,66 @@ impl Heur {
         let fixing_rate = 1.0 - num_differ as f64 / m.integral_cols().len().max(1) as f64;
         self.solve_sub_mip(m, w, None, fixing_rate, &lower, &upper, IINF, IINF, 100, Some(start), time_cap);
         num_differ
+    }
+
+    /// mip_start_trust_radius: the model plus a local branching row around
+    /// the MIP start (at most k of its binaries changed; the others free)
+    /// as a sub-MIP of mip_max_start_nodes nodes, k doubled up to three
+    /// times while that finds no solution
+    pub fn trust_region(&self, m: &MipData, w: &Worker) {
+        let gd = w.globaldom();
+        if gd.infeasible() {
+            return;
+        }
+        let start = m.trust_ref();
+        let n = m.num_col as usize;
+        let b = gd.bnd();
+        let lo: Vec<f64> = (0..n).map(|c| b.lo(c)).collect();
+        let up: Vec<f64> = (0..n).map(|c| b.up(c)).collect();
+        // sum_{s_j = 0} x_j + sum_{s_j = 1} (1 - x_j) <= k
+        let mut coef = vec![0.0; n];
+        let (mut given, mut ones) = (0i32, 0i32);
+        for &c in m.integral_cols() {
+            let j = c as usize;
+            let v = start[j].round();
+            if lo[j] != 0.0 || up[j] != 1.0 || !((start[j] - v).abs() <= m.feastol()) {
+                continue;
+            }
+            given += 1;
+            coef[j] = if v == 1.0 { -1.0 } else { 1.0 };
+            ones += (v == 1.0) as i32;
+        }
+        if given == 0 {
+            return;
+        }
+        // ponytail: each sub-MIP capped at the time spent so far (about the
+        // root LP's), not deterministic; an LP iteration budget if it stays
+        let time_cap = m.timer_read();
+        let r = m.opts.mip_start_trust_radius;
+        let mut k = if r > 0 { r } else { 10.max(given / 50) };
+        for _ in 0..4 {
+            let mut sol = vec![0.0; n];
+            let row = Some((&coef[..], (k - ones) as f64));
+            let nodes = m.opts.mip_max_start_nodes;
+            let res = glue::sub_mip(m, w, None, &lo, &up, 500, nodes, nodes, None, time_cap, f64::NAN, row, &mut sol);
+            if res.termination_status != MODEL_STATUS_NOTSET {
+                return;
+            }
+            if res.has_solution && res.model_status != MODEL_STATUS_INFEASIBLE && glue::try_solution(m, w, &sol, source::SUB_MIP) {
+                let changed: f64 = (0..n).map(|j| if coef[j] < 0.0 { 1.0 - sol[j] } else { coef[j] * sol[j] }).sum();
+                crate::log_user!(
+                    m.log,
+                    crate::lp_data::LogType::Info,
+                    "MIP start repaired at radius %d: %d of %d binaries changed\n",
+                    k,
+                    changed.round() as i32,
+                    given
+                );
+                return;
+            }
+            k = k.saturating_mul(2);
+        }
+        crate::log_user!(m.log, crate::lp_data::LogType::Info, "MIP start not used: no solution within radius %d\n", k / 2);
     }
 
     /// rootReducedCost
@@ -1252,6 +1312,7 @@ pub mod ffi {
             5 => h.central_rounding(m, &w),
             6 => h.randomized_rounding(m, &w, &x),
             7 => h.shifting(m, &w, &x),
+            9 => h.trust_region(m, &w),
             _ => h.zi_round(m, &w, &x),
         }
     }

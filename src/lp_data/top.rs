@@ -163,6 +163,9 @@ pub(crate) struct Top {
     pub saved: Vec<(f64, Vec<f64>)>,
     saved_tolerance: f64,
     saved_mip_max_nodes: i32,
+    /// The MIP start that completeSolutionFromDiscreteAssignment did not
+    /// complete, for the trust region search (mip_start_trust_radius)
+    trust_start: Vec<f64>,
     saved_bounds: (Vec<f64>, Vec<f64>, Vec<u8>),
     pub records: PresolveRecords,
     /// What changed for the C++ copies (X_*)
@@ -192,6 +195,7 @@ impl Top {
             saved: Vec::new(),
             saved_tolerance: 0.0,
             saved_mip_max_nodes: 0,
+            trust_start: Vec::new(),
             saved_bounds: Default::default(),
             records: PresolveRecords::default(),
             changed: 0,
@@ -433,6 +437,14 @@ impl LpHandle {
                 self.opts.mip_max_nodes = self.top().saved_mip_max_nodes;
             }
             return Some(0);
+        }
+        if is!(TrustStart) {
+            if self.lps.run.solution.value_valid {
+                return Some(0);
+            }
+            // SAFETY: the caller's vector
+            self.top().trust_start = std::mem::take(unsafe { &mut *(p as *mut Vec<f64>) });
+            return Some(1);
         }
         if is!(OptimizeModel) {
             let s = self.optimize_model_steps(true);
@@ -1446,6 +1458,7 @@ impl LpHandle {
         let start = if s.value_valid { Some((&s.col_value[..], &s.row_value[..])) } else { None };
         let name = lp.model_name.clone();
         let mut ms = MipSolver::new(host, Prof { p: self.profiling }, self.opts.clone(), self.log(), lp, name, start, false, 0);
+        ms.trust_start = std::mem::take(&mut self.top().trust_start);
         crate::mip::host::fns::run(&mut ms);
         self.host_top(H_SUBSOLVER, 0, std::ptr::null_mut());
         self.opts.log_dev_level = log_dev_level;
