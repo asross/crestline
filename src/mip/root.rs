@@ -266,9 +266,9 @@ impl MipData {
             // with static orbitopes the symmetries are synced first, so the
             // detection is spawned after the analytic centre (the task group
             // syncs its most recent task first)
-            // (with one worker only: on more, the detection runs on another
+            // (on one thread only: on more, the detection runs on another
             // thread, and an early sync would wait for it)
-            let early_symmetries = o.mip_symmetry_static_orbitopes && self.num_workers() == 1;
+            let early_symmetries = o.mip_symmetry_static_orbitopes && crate::parallel::num_threads() == 1;
             if self.sc().detect_symmetries && !early_symmetries {
                 self.start(clk::START_SYMMETRY_DETECTION);
                 self.o(op::START_SYMMETRY_DETECTION);
