@@ -240,6 +240,11 @@ pub struct SepaRound {
     pub vlb: Vec<VarBound>,
     /// bumped by add_cut, which can change the global domain
     pub generation: u32,
+    /// the largest efficacy of the cuts added since it was last reset (for
+    /// the tableau separator's Gomory cut history)
+    pub max_cut_efficacy: f64,
+    /// the tableau separator's (column, efficacy) observations
+    pub gmi_obs: Vec<(i32, f64)>,
     /// HighsTransformedLp's vectorsum
     pub vectorsum: HighsSparseVectorSum,
     /// HighsLpAggregator's vectorsum
@@ -287,6 +292,8 @@ impl SepaRound {
             vub: vec![VarBound::default(); num_col],
             vlb: vec![VarBound::default(); num_col],
             generation: 0,
+            max_cut_efficacy: 0.0,
+            gmi_obs: Vec::new(),
             vectorsum: HighsSparseVectorSum::new(n),
             aggr: HighsSparseVectorSum::new(n),
         });
@@ -372,6 +379,19 @@ impl SepaRound {
 
     /// HighsCutPool::addCut; the domain may change
     pub fn add_cut(&mut self, inds: &mut [i32], vals: &mut [f64], rhs: f64, integral: bool, conflict: bool) -> i32 {
+        {
+            let sol = self.col_value.get();
+            let (mut act, mut norm) = (0.0f64, 0.0f64);
+            for (&c, &v) in inds.iter().zip(vals.iter()) {
+                if (c as usize) < sol.len() {
+                    act += v * sol[c as usize];
+                }
+                norm += v * v;
+            }
+            if norm > 0.0 {
+                self.max_cut_efficacy = self.max_cut_efficacy.max((act - rhs) / norm.sqrt());
+            }
+        }
         self.generation = self.generation.wrapping_add(1);
         if self.generation == u32::MAX {
             for d in &mut self.cols {
