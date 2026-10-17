@@ -197,7 +197,28 @@ impl OrbitopeMatrix {
         col
     }
 
+    /// The orbitope has set packing rows (possibly negated): it is handled
+    /// as the packing orbitope of those rows in the static order of their
+    /// indices, from the root on (orbitopal fixing of its triangle, as
+    /// SCIP's orbitope presolving), instead of in the order of the
+    /// branching rows. Sorting the columns of a submatrix is a valid
+    /// symmetry reduction on its own, and the same order at every node
+    /// keeps the fixings consistent.
+    pub fn static_packing(&self) -> bool {
+        self.num_set_packing_rows >= 2
+    }
+
+    /// Orbitopal fixing on the packing rows in the static order
+    pub fn static_fixing(&self, domain: &SymDom) -> i32 {
+        let rows: Vec<i32> =
+            (0..self.num_rows).filter(|&i| self.row_is_set_packing[i as usize] > RowPacking::NotPacking).collect();
+        self.orbital_fixing_packing(&rows, domain)
+    }
+
     pub fn orbital_fixing(&self, domain: &SymDom) -> i32 {
+        if self.static_packing() {
+            return self.static_fixing(domain);
+        }
         let mut rows = Vec::with_capacity(self.num_rows as usize);
         let mut row_used = vec![false; self.num_rows as usize];
         let mut is_packing = true;
@@ -549,6 +570,21 @@ impl Symmetries {
             }
             _ => col,
         }
+    }
+
+    /// The static fixings of the packing orbitopes (on the global domain
+    /// after detection)
+    pub fn fix_static_orbitopes(&self, domain: &SymDom) -> i32 {
+        let mut num_fixed = 0;
+        for o in &self.orbitopes {
+            if o.static_packing() {
+                num_fixed += o.static_fixing(domain);
+                if domain.dom.infeasible() {
+                    break;
+                }
+            }
+        }
+        num_fixed
     }
 
     pub fn propagate_orbitopes(&self, domain: &SymDom) -> i32 {
