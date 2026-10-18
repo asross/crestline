@@ -984,6 +984,26 @@ irreducible one of 50 rows, marked as an expected difference). Rejected: accepti
 tolerance (the residuals are absolute, and 300x the tolerance); the primal
 simplex with its forced phase 2 (above).
 
+## Cheap B&B tweaks and implied integers from the literature survey (2026-10-18)
+
+From the survey notes (crestline-bench/lit/core.md). Each was an option
+on its own branch, screened locally (M1, one thread, 120 s, 56 MIPLIB
+and target instances, main and variant side by side) and, if
+promising, on bench-std (240 MIPLIB, one thread, 300 s, option off and
+on at the same commit).
+
+| change | screen (time ratio, shifted geometric mean; solved) | runners | verdict |
+|---|---|---|---|
+| strong branching lookahead 8 (stop after 8 strong-branched candidates without a better score; arXiv:2312.07041) | 1.012 (1.011 without neos-2978193-inde); 23 -> 23; binkar10_1 35.6 -> 53.9 s, enlight_hard 11.1 -> 23.0, irp 25.6 -> 37.5 | not run | rejected: HiGHS's budget on strong branching iterations already bounds it, and stopping early loses the better candidates |
+| network implied integers in presolve (+-1 continuous columns, at most two per column, rows signed by union-find; arXiv:2504.07209) | 1.002 without neos-2978193-inde (93 -> 14 s with: all 20736 continuous columns become implied integer); 23 -> 23 | bench-std runs 39078267364 / 39078268540: x64 solved 90 -> 89, sgm 144.3 -> 146.4; arm64 91 -> 88, 145.5 -> 147.1; exp-1-500-5-5 2-3 s -> time limit, net12 and neos-3216931-puriri lose their solves, rmatr100-p10 2.5x; neos-2978193-inde 70-79 -> 12-13 s | rejected: implied integers change cut generation (c-MIR) and heuristics on network-flow models, and that costs more than it gains |
+| separator backoff (a separator none of whose cuts entered an LP over 3 runs is skipped for 2..64 calls; arXiv:2311.05650) | 0.994 without neos-2978193-inde; 24 -> 24 (markshare_4_0 119 -> 83 s, neos-911970 8.4 -> 5.4 s) | not run (screen gain within noise) | rejected |
+
+HiGHS already detects implied integers column by column (a continuous
+column in an integral equation, or, dually, with integral rows and
+bounds): on MIPLIB the network rule added such columns on 10 of 72
+presolved models (neos-2978193-inde, binkar10_1, markshare2/4_0,
+neos-911970, ns1208400 among them; none on the dispatch models).
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
