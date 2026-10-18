@@ -505,8 +505,8 @@ difference within ±0.003%).
 | two threads, 180 s: incumbent (4 seeds) | -248107 to -248502 | -247475 to -247802 |
 
 1% needs the bound within 1% of the incumbent. On `diverse_10-01` the
-root bound is enough for any incumbent at or below -247733: the best
-solution known is 0.13% beyond that, so this tick is primal-limited. On
+root bound is enough for any incumbent at or below -247757: the best
+solution known is 0.12% beyond that, so this tick is primal-limited. On
 `hard_10-03` even the best solution known needs a bound of -251424, 205
 above the root bound, so it needs both.
 
