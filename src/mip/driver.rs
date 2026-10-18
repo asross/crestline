@@ -336,7 +336,12 @@ impl MipData {
             if self.opts.run_rens {
                 self.d(op::DIVE_HEURISTIC, i, 1.0);
             }
-        } else if self.opts.run_rins {
+        } else if self.opts.run_rins
+            && !(self.opts.mip_graph_lns_skip_root_submips
+                && (self.sc().lns_tree_next >= 0 || self.own_lns().is_some()))
+        {
+            // (mip_graph_lns_skip_root_submips: no RINS while graph LNS
+            // does the primal work)
             self.d(op::DIVE_HEURISTIC, i, 2.0);
         }
         self.d(op::DIVE_HEURISTIC, i, -1.0);
