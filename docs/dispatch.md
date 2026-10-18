@@ -415,6 +415,70 @@ ticks. Adding bank and module windows together (45k rows) left
 `hard_10-03` at -251744 on seed 0. So no separator was written, and no
 runner time was spent.
 
+## Warm starts (`mip_start_trust_radius`, rejected, 2026-10-17)
+
+Recurring dispatch solves could start from the previous tick's plan,
+shifted one period. Today a start is handled as in HiGHS
+(completeSolutionFromDiscreteAssignment): a feasible one becomes the
+incumbent, otherwise its integers are fixed and the rest solved (an LP, or
+a sub-MIP of `mip_max_start_nodes` nodes), and if that is infeasible the
+start is discarded. A shifted plan often breaks one link of a
+state-of-charge chain, so it is discarded exactly when it is nearly right.
+
+Tried: `mip_start_trust_radius` (off at -1; 0: max(10, 2% of the start's
+binaries)). When the start was not completed, after the root LP a sub-MIP
+of the model plus one local branching row (at most k of the start's
+binaries changed, the others free) ran to its first solution, with k
+doubled up to three times and each sub-MIP capped at the time spent so far
+(presolve off, so the root basis is kept). Until there was an incumbent the
+deep graph LNS centred its neighbourhoods on the start.
+
+It repaired most starts (for example 8 of 3111 binaries changed on
+`dm_full_pert_s2_ramp` from `pert_s1`), but the sub-MIP costs about a root
+solve with cuts, and graph LNS from the LP point finds a better incumbent
+than the repaired start in a fraction of that. It never helped, so it was
+removed.
+
+Measured with the `bench-dispatch` workflow (input `starts`; the start
+files are made in the runner and never uploaded): 180 s, 1% gap, 16 seeds,
+x86_64 and arm64. Starts: **sibling**, the best solution (0.1%, 60 s) of
+the `pert_s1` variant of the same size and ramp given to `pert_s2`,
+`prices`, `randsoc`, `hardpert` and `windlull`, and `lambda_..._142050`
+and `_wind185` to each other (15 instances); **shift**, each `dm_*`
+instance's own best solution shifted one period, with the last period and
+`soc(..._0)` left out (20 instances). Every run of every arm reached 1%.
+t1: geometric mean ratio of the time to within 1% of the best known
+(95% interval); pg: mean primal gap over the limit, % (difference ± 95%
+half-width).
+
+| start, threads | arch | today / no start: t1 | pg | trust region / today: t1 | pg |
+|---|---|---|---|---|---|
+| sibling, 1 | x86_64 | 0.809 [0.732, 0.895] | -0.45 ± 0.17 | 2.458 [2.301, 2.626] | +2.37 ± 0.50 |
+| sibling, 1 | arm64 | 0.819 [0.744, 0.900] | -0.40 ± 0.15 | 2.417 [2.258, 2.588] | +2.30 ± 0.46 |
+| sibling, 2 | x86_64 | 0.843 [0.777, 0.914] | -0.22 ± 0.08 | 2.546 [2.389, 2.713] | +1.73 ± 0.26 |
+| sibling, 2 | arm64 | 0.851 [0.787, 0.919] | -0.23 ± 0.09 | 2.516 [2.357, 2.686] | +1.88 ± 0.27 |
+| shift, 1 | x86_64 | 0.994 [0.991, 0.997] | -0.00 ± 0.00 | 3.246 [3.158, 3.335] | +3.79 ± 0.62 |
+| shift, 1 | arm64 | 0.992 [0.987, 0.997] | -0.01 ± 0.00 | 3.268 [3.162, 3.378] | +3.76 ± 0.57 |
+| shift, 2 | x86_64 | 0.988 [0.983, 0.994] | -0.01 ± 0.00 | 3.405 [3.357, 3.454] | +2.59 ± 0.28 |
+| shift, 2 | arm64 | 0.997 [0.993, 1.000] | -0.01 ± 0.00 | 3.460 [3.402, 3.519] | +2.58 ± 0.26 |
+
+The gap at the limit did not change in any comparison (every
+difference within ±0.003%).
+
+- Today's handling already pays on siblings: where the fixed problem
+  is feasible (`dm_small_prices`, `dm_full_pert_s2_ramp`, `_wind185`)
+  the start is completed and the trust region does not run (t1 ratio
+  1.00). Shifted starts are always discarded (their fixed problem is
+  infeasible in presolve), so today equals no start.
+- Wherever the trust region runs it is slower on every instance: 1.7-4.1
+  times the time to 1% of the best (the hard tick `lambda_..._142050`
+  from `_wind185`: 1.83 / 1.76, its start 193-196 binaries from feasible,
+  found only at the fourth radius).
+- The self-shift proxy also shifts decisions against unshifted prices,
+  so it overstates how far a real previous tick is. Whether real
+  consecutive ticks are closer is still open: `dispatch.py starts`
+  and the `@` start configs are kept for that test.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -441,3 +505,6 @@ runner time was spent.
 - A bandit over the LNS LPs' cost perturbation (see above).
 - Time-ordered fix-propagate with backtracking at the root (see above).
 - Storage valid inequalities as root cuts (measured; see above).
+- A trust region sub-MIP around a MIP start that cannot be completed
+  (`mip_start_trust_radius`): 2.4-3.5 times the time to 1% of the best
+  known (see "Warm starts" above).

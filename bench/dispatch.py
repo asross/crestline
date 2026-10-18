@@ -4,6 +4,7 @@
   dispatch.py run OUT.jsonl --cfg NAME=BIN[,option=value...] ... --inst FILE...
       [--seeds 0-15] [--tl 180] [--threads 1] [--gap 0.01] [--shard I/N] [-j 1]
   dispatch.py report RES.jsonl... [--base NAME]
+  dispatch.py starts DIR CREST --inst FILE... [--shift]
 
 run: for each (instance, seed) of the shard, the configs run back to back
 (in an order that alternates with the seed), so the configs of a pair see
@@ -13,6 +14,8 @@ report: per architecture, each config against the base, paired by
 (instance, seed), with 95% t-intervals. On macOS, CRESTLINE_INSTR_CLOCK=R
 in the environment makes a second R*1e9 instructions (reproducible
 time limits on a loaded machine); instructions are recorded there too.
+starts: MIP starts for configs with read_solution_file=@ (run --starts
+DIR); see starts() and "Warm starts" in docs/dispatch.md.
 """
 import argparse, glob, json, math, os, platform, re, subprocess, sys, tempfile
 from collections import defaultdict
@@ -41,13 +44,14 @@ def run_one(cfg, inst, seed, a, cpu):
     cname, binary, opts = cfg
     with tempfile.NamedTemporaryFile('w', suffix='.opts', delete=False) as f:
         f.write(f"threads = {a.threads}\nrandom_seed = {seed}\nmip_rel_gap = {a.gap}\ntime_limit = {a.tl}\n")
-        f.writelines(f"{k} = {v}\n" for k, v in opts)
+        f.writelines(f"{k} = {v.replace('@', os.path.join(a.starts or '', name(inst) + '.sol'))}\n" for k, v in opts)
     mac = sys.platform == 'darwin'
     cmd = (['/usr/bin/time', '-l'] if mac else []) + [binary, '--options_file', f.name, inst]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     out, err = p.communicate()
     os.unlink(f.name)
-    g = lambda pat, s=out: (m.group(1) if (m := re.search(pat, s, re.M)) else None)
+    # the last match: completing a MIP start prints a solving report first
+    g = lambda pat, s=out: (m[-1] if (m := re.findall(pat, s, re.M)) else None)
     num = lambda x: float(x) if x not in (None, 'inf', '-inf') else None
     traj, last = [], None
     for l in out.splitlines():
@@ -88,6 +92,9 @@ def run(a):
     def pair(p):
         inst, seed = p
         order = cfgs if seed % 2 == 0 else cfgs[::-1]
+        # a config with a start (read_solution_file=@) needs one
+        if any('@' in v for c in cfgs for _, v in c[2]) and not os.path.exists(os.path.join(a.starts or '', name(inst) + '.sol')):
+            return []
         return [run_one(c, inst, seed, a, cpu) for c in order if (c[0], name(inst), seed) not in done]
 
     with open(a.out, 'a') as out, ThreadPoolExecutor(a.j) as ex:
@@ -96,6 +103,59 @@ def run(a):
                 out.write(json.dumps(r) + '\n')
                 print(f"{r['cfg']:12s} {r['inst']:40s} s{r['seed']:<3d} {r['status']}  obj {r['primal']}  gap {r['gap']}%  {r['time']}s", flush=True)
             out.flush()
+
+
+def start(sol, out, shift):
+    """a crest solution file as a MIP start: as it is (for a sibling model
+    with the same column names), or shifted one period earlier: a column
+    whose name ends in a period index p takes the value of index p + 1,
+    the last period and the initial state of charge (soc(..._0)) left out
+    (inf: not given)"""
+    lines = open(sol).read().splitlines()
+    k = next(i for i, l in enumerate(lines) if l.startswith('# Columns '))
+    cols = [l.split() for l in lines[k + 1:k + 1 + int(lines[k].split()[2])]]
+    val = dict(cols)
+    for c in cols if shift else []:
+        m = re.match(r'^(.*[(_])(\d+)\)$', c[0])
+        if m:
+            soc0 = c[0].startswith('soc(') and m.group(2) == '0'
+            c[1] = 'inf' if soc0 else val.get(f"{m.group(1)}{int(m.group(2)) + 1})", 'inf')
+    open(out, 'w').write('\n'.join(lines[:k + 1] + [' '.join(c) for c in cols]) + '\n')
+
+
+def starts(a):
+    """the MIP start of each instance: the best solution (one thread, seed
+    0, 0.1% gap, 60 s) of its sibling with the same columns (dm_*: the
+    pert_s1 variant of its size and ramp; lambda_*: with or without
+    _wind185), or (--shift) of
+    itself shifted (dm_* only, whose column names end in a period index).
+    Start files show the model: never upload them."""
+    os.makedirs(a.dir, exist_ok=True)
+    path = {name(f): f for pat in a.inst for f in glob.glob(pat)}
+    src = {}
+    for nm in path:
+        if a.shift:
+            s = nm if nm.startswith('dm_') else None
+        else:
+            m = re.match(r'^(dm_[a-z]+_)(pert_s2|prices|randsoc|hardpert|windlull)(_(no)?ramp)$', nm)
+            s = m.group(1) + 'pert_s1' + m.group(3) if m else nm[:-8] if nm.endswith('_wind185') else nm + '_wind185'
+        if s in path and (a.shift or s != nm):
+            src[nm] = s
+
+    def best(s):
+        with tempfile.NamedTemporaryFile('w', suffix='.opts', delete=False) as f:
+            f.write("threads = 1\nrandom_seed = 0\nmip_rel_gap = 0.001\ntime_limit = 60\n")
+        out = os.path.join(a.dir, f'best_{s}.sol')
+        subprocess.run([os.path.abspath(a.bin), '--options_file', f.name, '--solution_file', out, path[s]],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.unlink(f.name)
+
+    with ThreadPoolExecutor(os.cpu_count()) as ex:
+        list(ex.map(best, sorted(set(src.values()))))
+    for nm, s in sorted(src.items()):
+        if os.path.exists(os.path.join(a.dir, f'best_{s}.sol')):
+            start(os.path.join(a.dir, f'best_{s}.sol'), os.path.join(a.dir, nm + '.sol'), a.shift)
+            print(f"start for {nm} from {s}", flush=True)
 
 
 def tq(df):
@@ -141,7 +201,10 @@ def report(a):
         best[r['inst']] = r['primal'] if b is None or sense * r['primal'] < sense * b else b
     by = defaultdict(dict)
     for r in rows:
-        r['pgm'] = primal_gap_mean(r, best.get(r['inst'], 0.0), r['tl'])
+        b = best.get(r['inst'], 0.0)
+        r['pgm'] = primal_gap_mean(r, b, r['tl'])
+        # the time to within 1% of the best known (the limit if never)
+        r['t1'] = next((t for t, p in r['traj'] if abs(p - b) <= 0.01 * max(abs(p), abs(b))), r['tl'])
         by[(r['arch'], r['cfg'])][(r['inst'], r['seed'])] = r
     base = a.base or rows[0]['cfg']
     opt = lambda r: r['status'] == 'Optimal'
@@ -155,9 +218,10 @@ def report(a):
             keys = sorted(set(A) & set(B))
             print(f"### {cb} against {base}: {len(keys)} pairs; solved {sum(opt(A[k]) for k in keys)} -> {sum(opt(B[k]) for k in keys)}\n")
             print("Differences B - A, mean ± 95% half-width over seeds. time: geometric mean ratio B/A of runs both solved "
-                  "(log-space interval); gap: % at the end; pg: mean primal gap % over the limit (primal integral / limit).\n")
-            print("| instance | n | solved A/B | time B/A | instr B/A | gap A | gap B-A | pg A | pg B-A |")
-            print("|---|---|---|---|---|---|---|---|---|")
+                  "(log-space interval); t1: the same over all pairs of the time to within 1% of the best known (the limit if never); "
+                  "gap: % at the end; pg: mean primal gap % over the limit (primal integral / limit).\n")
+            print("| instance | n | solved A/B | time B/A | instr B/A | t1 A | t1 B/A | gap A | gap B-A | pg A | pg B-A |")
+            print("|---|---|---|---|---|---|---|---|---|---|---|")
             logs = []
             for inst in sorted({k[0] for k in keys}):
                 ks = [k for k in keys if k[0] == inst]
@@ -173,10 +237,18 @@ def report(a):
                 gd = fmt(*ci([B[k]['gap'] - A[k]['gap'] for k in gaps])) if len(gaps) > 1 else ''
                 pa = sum(A[k]['pgm'] for k in ks) / len(ks)
                 pd = fmt(*ci([B[k]['pgm'] - A[k]['pgm'] for k in ks])) if len(ks) > 1 else ''
+                t1a = math.exp(sum(math.log(A[k]['t1']) for k in ks) / len(ks))
+                t1 = (lambda m, h: f"{math.exp(m):.3f} [{math.exp(m - h):.3f}, {math.exp(m + h):.3f}]")(
+                    *ci([math.log(B[k]['t1'] / A[k]['t1']) for k in ks]))
                 print(f"| {inst} | {len(ks)} | {sum(opt(A[k]) for k in ks)}/{sum(opt(B[k]) for k in ks)} | {tcell} | "
-                      f"{cell(lambda r: r.get('instr'))} | {ga:.3f} | {gd} | {pa:.3f} | {pd} |")
+                      f"{cell(lambda r: r.get('instr'))} | {t1a:.2f} | {t1} | {ga:.3f} | {gd} | {pa:.3f} | {pd} |")
             if logs:
                 print(f"\nGeometric mean over instances of the time ratio: {math.exp(sum(logs) / len(logs)):.3f} ({len(logs)} instances)\n")
+            m, h = ci([math.log(B[k]['t1'] / A[k]['t1']) for k in keys])
+            gk = [k for k in keys if A[k]['gap'] is not None and B[k]['gap'] is not None]
+            print(f"\nAll {len(keys)} pairs: t1 B/A {math.exp(m):.3f} [{math.exp(m - h):.3f}, {math.exp(m + h):.3f}]; "
+                  f"pg B-A {fmt(*ci([B[k]['pgm'] - A[k]['pgm'] for k in keys]))}; "
+                  f"gap B-A {fmt(*ci([B[k]['gap'] - A[k]['gap'] for k in gk])) if len(gk) > 1 else ''} ({len(gk)} pairs with gaps)\n")
 
 
 ap = argparse.ArgumentParser()
@@ -191,8 +263,14 @@ r.add_argument('--threads', type=int, default=1)
 r.add_argument('--gap', default='0.01')
 r.add_argument('--shard', default='0/1')
 r.add_argument('-j', type=int, default=1)
+r.add_argument('--starts', help="directory of the MIP starts (dispatch.py starts): '@' in an option value is the instance's")
 p = sp.add_parser('report')
 p.add_argument('res', nargs='+')
 p.add_argument('--base')
+t = sp.add_parser('starts')
+t.add_argument('dir')
+t.add_argument('bin')
+t.add_argument('--inst', nargs='+', required=True)
+t.add_argument('--shift', action='store_true')
 a = ap.parse_args()
-run(a) if a.cmd == 'run' else report(a)
+{'run': run, 'report': report, 'starts': starts}[a.cmd](a)
