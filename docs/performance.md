@@ -1116,7 +1116,13 @@ sync: solved 381 -> 382 / 377 -> 382, time 1.008 / 1.000, but
 dm_full_pert_s2_ramp 1.032 [1.022, 1.042] on x64 (primal integral +0.08
 points): the early sync waited for the detection running on the second
 core and changed which task the helper took. Since then the early sync
-is one-worker only, so two-thread runs schedule as main.
+is one-thread only (and never in the concurrent LNS helper), so
+two-thread runs schedule as main. Rerun after rebasing on main (run
+39094216794, two threads, 16 seeds): solved 379 -> 379 (arm64) and 377
+-> 378 (x64), time 0.992 and 1.011, dm_full_pert_s2_ramp 1.008
+[1.000, 1.016] on both, the largest interval lambda wind185 1.015
+[1.005, 1.025] on x64; the dispatch orbitopes have no packing rows, so
+these two-thread differences are scheduling noise.
 
 ## Other platforms
 
