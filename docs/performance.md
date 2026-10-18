@@ -957,6 +957,68 @@ thread 1.35-1.39 [0.98, 1.92] (solve order; B&B path), two threads 0.79-0.81.
   dispatch-specific presolve (the slow models are slow per iteration, not
   by iteration count).
 
+## Cut-based conflict analysis: tried and removed (2026-10-18)
+
+Mexi, Serrano, Berthold, Gleixner and Nordström (arXiv:2410.15110,
+INFORMS JoC 2025; on by default in SCIP 10) learn linear constraints
+instead of bound disjunctions. Implemented as `mip_conflict_linear`
+(branch `conflict-lin`, 2043f3b, ~230 lines in mip/conflict.rs): from the
+row that detected the infeasibility, or the LP's dual proof, resolve the
+latest bound change the row needs with the linear row that propagated it
+(model row, cut, objective cutoff row, conflict of binaries), applying
+the cMIR reduction of the reason (Proposition 2) when the plain
+combination is not infeasible before that change, up to the first UIP;
+the learned row, coefficient-tightened, goes to the cut pool as a
+propagated conflict. HiGHS's graph-based conflicts and its proof cuts
+(generateConflict) were kept, as in SCIP.
+
+Two bugs in the first version gave wrong answers on 19 MIPLIB instances
+(both arches): clique-table reasons are not the two-literal clique (the
+reason literal reaches the fixed column through column substitutions),
+and a combination that cancels to rounding noise was rescaled to a
+garbage row. Without clique reasons and with cancellation below 1e-6 of
+the terms' scale rejected, MIPLIB had no wrong answers.
+
+**MIPLIB 2017 benchmark** (`bench-std`, 240 instances, one thread, 300 s,
+crest against crestcl = crest with the option; shifted geometric mean,
+shift 10 s; ratios over the instances both solve, 95% t-interval):
+
+| arch | solved off -> on | sgm time off / on | time on/off, both solved | nodes on/off, both solved |
+|---|---|---|---|---|
+| arm64 | 95 -> 93 | 143.6 / 143.1 | 0.998 [0.953, 1.045] (89) | 0.937 [0.805, 1.092] |
+| x64 | 96 -> 96 | 141.5 / 141.3 | 1.000 [0.956, 1.046] (91) | 0.939 [0.808, 1.090] |
+
+**Dispatch** (`bench-dispatch`, 25 models, 16 seeds, 180 s, gap 0.01,
+geometric mean of the per-model time ratios on/off over the 24 models
+with solved pairs):
+
+| threads | arm64 | x64 | solved (arm64; x64) |
+|---|---|---|---|
+| 1 | 0.991 | 0.986 | 373 -> 373; 373 -> 373 |
+| 2 | 1.003 | 0.992 | 381 -> 383; 378 -> 381 |
+
+No model improved beyond its interval. The hard tick at one thread
+0.919 [0.845, 1.001] (arm64), 0.920 [0.844, 1.002] (x64); none at two
+threads (0.998, 1.009). `hard_10-03` end gap -0.03 +- 0.10 (one thread),
+-0.03 +- 0.06 (two): no effect. Regressions: `dm_full_randsoc_ramp`, one
+thread, primal integral +0.10 +- 0.06 (arm64) and +0.115 +- 0.06 (x64)
+of 4.2; `dm_full_pert_s2_ramp`, two threads, end gap +0.026 +- 0.024 and
+primal integral +0.073 +- 0.054 (arm64); the small models +0.5-1% time.
+
+Why nothing for dispatch: the dispatch models search almost no tree.
+`hard_10-03` processes 2 nodes in 90 s and the hard tick 1, so conflict
+analysis of the main search hardly runs; their bound is the root's, not
+the tree's (bound-limited means root-bound-limited here). What changed
+came from sub-MIPs (graph LNS, RINS), where it only moved paths. On
+MIPLIB, 6% fewer nodes (not significant) and no time gain. (Counted on
+neos-911970 before the clique fix: a learned row from 12-40% of the
+analyses; the rest stopped at once at a first UIP, a non-linear reason,
+or a failed reduction.) Not tried: the mixed-binary
+reduction of Section 6 (resolving non-relaxable continuous columns out of
+the reason first), the remaining blocker on the continuous-heavy models.
+The bench tooling kept: `bench/std.py` solvers `crestX` with options
+`crestX:K=V` (A/B of a crest option in `bench-std`).
+
 ## IPX cleanup: primal phase 1 when the original LP ends Unknown (2026-10-17)
 
 irish-electricity's LP relaxation with `solver = ipm` ended with status

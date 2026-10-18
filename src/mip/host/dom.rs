@@ -505,7 +505,7 @@ impl DomS {
     }
 
     /// conflictAnalysis(conflictPool, globaldom, pseudocost)
-    pub fn conflict_analysis(&mut self, pool: &mut ConflictPoolS, cutpool: &CutPoolS, global: &mut DomS, pseudocost: &PscostS) {
+    pub fn conflict_analysis(&mut self, pool: &mut ConflictPoolS, global: &mut DomS, pseudocost: &PscostS) {
         if std::ptr::eq(self, global) || global.infeasible || !self.infeasible {
             return;
         }
@@ -514,38 +514,17 @@ impl DomS {
             return;
         }
         let c = self.conflict(global, pool, pseudocost);
-        let learned = self.learn_linear(&c, None);
         // SAFETY: the views of the two live domains
         unsafe { crate::mip::conflict::ffi::highs_rs_conflict_analysis(&c) };
-        self.add_learned(learned, cutpool, global);
-    }
-
-    /// The cut-based conflict of mip_conflict_linear (conflict.rs
-    /// learn_linear), if on
-    fn learn_linear(&self, c: &CConflict, proof: Option<(&[i32], &[f64], f64)>) -> Option<(Vec<i32>, Vec<f64>, f64)> {
-        if !self.ms().opts.mip_conflict_linear {
-            return None;
-        }
-        crate::mip::conflict::learn_linear(c, proof)
-    }
-
-    /// Adds a learned linear conflict, coefficient-tightened, to the cut pool
-    fn add_learned(&self, learned: Option<(Vec<i32>, Vec<f64>, f64)>, cutpool: &CutPoolS, global: &DomS) {
-        if let Some((mut inds, mut vals, mut rhs)) = learned {
-            global.tighten_coefficients(&inds, &mut vals, &mut rhs);
-            cutpool.add_cut(self.ms(), &mut inds, &mut vals, rhs, false, true, true, true);
-        }
     }
 
     /// conflictAnalysis(proof, conflictPool, globaldom, pseudocost)
-    #[allow(clippy::too_many_arguments)]
     pub fn conflict_analysis_proof(
         &mut self,
         inds: &[i32],
         vals: &[f64],
         rhs: f64,
         pool: &mut ConflictPoolS,
-        cutpool: &CutPoolS,
         global: &mut DomS,
         pseudocost: &PscostS,
     ) {
@@ -557,7 +536,6 @@ impl DomS {
             return;
         }
         let c = self.conflict(global, pool, pseudocost);
-        let learned = self.learn_linear(&c, Some((inds, vals, rhs)));
         // SAFETY: as conflict_analysis
         unsafe {
             crate::mip::conflict::ffi::highs_rs_conflict_analysis_proof(
@@ -568,7 +546,6 @@ impl DomS {
                 rhs,
             )
         };
-        self.add_learned(learned, cutpool, global);
     }
 
     /// conflictAnalyzeReconvergence
