@@ -69,6 +69,20 @@ Locally:
         --solvers crest=target/release/crest,highs=path/to/highs,scip --tl 60
     python3 bench/std.py report out.jsonl
 
+## Screen first, then the full run
+
+A candidate change goes through two stages, and the full benchmark runs
+only for one that passes the first:
+
+| Stage | Dispatch (bench-dispatch) | Standard (bench-std) | Cost |
+|---|---|---|---|
+| Screen | `screen` input, or a `bench-screen/*` branch: 10 instances (the three Lambda ticks, `hard_10-03_1340`, `diverse_10-01_0052` and the five `dm_*` models most sensitive to past changes), 8 seeds, 120 s, 8 runners per arch | `miplib-easy`, crest against main only | about 1/5 of a full run |
+| Full | all 25 instances, 16 seeds, 180 s, 16 runners per arch, 1 and 2 threads | `miplib` (240), plus `lp` for LP changes | |
+
+Before either, screen locally on a few models by instruction count
+(`CRESTLINE_INSTR_CLOCK`). A screen that shows no gain, or a loss on any
+motivating tick, ends the experiment: record it in the docs and move on.
+
 ## Baseline
 
 2026-10-16, crest `bench-std` (main 48f6190 + this harness), HiGHS 1.15.1
