@@ -479,6 +479,73 @@ difference within ±0.003%).
   consecutive ticks are closer is still open: `dispatch.py starts`
   and the `@` start configs are kept for that test.
 
+## Where the gap is on the time-limited ticks (2026-10-18)
+
+`hard_10-03_1340` and `diverse_10-01_0052` end at 180 s above 1%.
+- **CPLEX** (180 s, one thread, from its logs): on `hard_10-03` its
+  bound at 180 s (-251669) is weaker than crest's root bound (-251629);
+  on `diverse_10-01` its tree moves its bound from -250665 to -250094,
+  past crest's root (-250235). Its incumbents are -247957 (1.50%) and
+  -246893 (1.30%).
+- **References:** crest at `mip_rel_gap = 0.001` (graph LNS on), two
+  threads, 2 h, seeds 0-3, arm64 runners. Every run still improved its
+  incumbent after 40 min (the last improvement came at 2600-7000 s).
+  At `mip_rel_gap = 1e-4` graph LNS is off and the incumbents after 2 h
+  are worse than one-thread 1% runs at 180 s, so references need the
+  looser gap.
+
+| | `hard_10-03` | `diverse_10-01` |
+|---|---|---|
+| best solution in 2 h | -248935 | -248063 |
+| best bound in 2 h | -251040 | -249717 |
+| crest, one thread, 180 s: root bound / incumbent (median, 16 seeds, M1) | -251629 / -247777 | -250235 / -247295 |
+| ... incumbent part of the gap, at least | 0.47% | 0.31% |
+| ... bound part, at least | 0.24% | 0.21% |
+| ... not yet attributed (the optimum lies in between) | 0.85% | 0.67% |
+| two threads, 180 s: incumbent (4 seeds) | -248107 to -248502 | -247475 to -247802 |
+
+1% needs the bound within 1% of the incumbent. On `diverse_10-01` the
+root bound is enough for any incumbent at or below -247733: the best
+solution known is 0.13% beyond that, so this tick is primal-limited. On
+`hard_10-03` even the best solution known needs a bound of -251424, 205
+above the root bound, so it needs both.
+
+**Who finds the incumbents** (one thread, 180 s, 16 seeds per tick,
+instruction clock, logs at `log_dev_level = 3`). Graph LNS finds every
+incumbent; branch and bound and the other root heuristics find none (one
+shifting solution on `diverse_10-01`). Shares of the objective gained
+after the first incumbent (the root dive's, at about 6 s):
+
+| | `hard_10-03` | `diverse_10-01` |
+|---|---|---|
+| quick search dives | 46% | 56% |
+| deep search at the root: flips / short rows / BFS | 25% / 13% / 9% | 25% / 8% / 5% |
+| graph LNS rounds during the tree search | 2% | 1% |
+| found after 60 s | 20% | 9% |
+| last improvement (median) | 148 s | 140 s |
+
+There are 1-3 deep searches per run (median 2): the first, at the root,
+takes most of the time; the tree search then gets about one turn (seed 0
+of `hard_10-03`: 104 nodes from 133 s to 164 s, 23k strong branching LP
+iterations, no incumbent, 0.008% of bound), and a second round found 13
+improvements in the last 16 s.
+
+**A smaller tree share** (`mip_graph_lns_tree_share`, removed): the tree
+search's LP iterations before the next graph LNS round, per LP iteration
+of the last round (1 as before). Screen (bench-dispatch run 39097153028:
+the 10 screen models, 8 seeds, 120 s, one thread), against main:
+
+| | x86_64 | arm64 |
+|---|---|---|
+| share 0: solved models, time | 1.001 | 1.003 |
+| share 0.25: solved models, time | 1.004 | 1.004 |
+| `hard_10-03` gap at 120 s, share 0 / 0.25 | +0.021 ± 0.050 / +0.010 ± 0.055 | +0.019 ± 0.048 / +0.009 ± 0.056 |
+| `diverse_10-01` gap, share 0 / 0.25 | +0.019 ± 0.075 / +0.002 ± 0.042 | +0.025 ± 0.080 / +0.010 ± 0.044 |
+
+No change: with one or two tree turns per run, the share moves little
+time. The time that matters is the first deep search's, and the speed of
+graph LNS itself.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -505,6 +572,8 @@ difference within ±0.003%).
 - A bandit over the LNS LPs' cost perturbation (see above).
 - Time-ordered fix-propagate with backtracking at the root (see above).
 - Storage valid inequalities as root cuts (measured; see above).
+- A smaller share of LP iterations for the tree search between graph LNS
+  rounds (see above).
 - A trust region sub-MIP around a MIP start that cannot be completed
   (`mip_start_trust_radius`): 2.4-3.5 times the time to 1% of the best
   known (see "Warm starts" above).

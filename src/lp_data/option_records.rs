@@ -901,16 +901,6 @@ pub const RECORDS: &[Meta] = &[
         str_default: "",
     },
     Meta {
-        type_: DOUBLE,
-        advanced: false,
-        name: "mip_graph_lns_tree_share",
-        description: "When graph LNS alternates with the tree search, the LP iterations the tree search gets before the next graph LNS round, per LP iteration of the last round (1: as many)",
-        bool_default: false,
-        int: (0, 0, 0),
-        dbl: (0.0, 1.0, f64::INFINITY),
-        str_default: "",
-    },
-    Meta {
         type_: BOOL,
         advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
