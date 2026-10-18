@@ -619,7 +619,8 @@ impl MipData {
                     // if it pays, continue it during the tree search
                     let sc = self.sc();
                     if sc.upper_bound < lns_upper_bound && !self.submip {
-                        sc.lns_tree_wait = 1000i64.max(lns_iters + sc.total_lp_iterations);
+                        let share = self.opts.mip_graph_lns_tree_share;
+                        sc.lns_tree_wait = 1000i64.max((share * (lns_iters + sc.total_lp_iterations) as f64) as i64);
                         sc.lns_tree_next = sc.total_lp_iterations + sc.lns_tree_wait;
                     }
                     // a concurrent LNS helper keeps searching from the best

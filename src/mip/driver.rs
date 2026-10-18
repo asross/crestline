@@ -529,7 +529,9 @@ unsafe fn search(m: *mut MipData) {
                 if sc.upper_bound >= upper_bound {
                     sc.lns_tree_wait *= 2;
                 }
-                sc.lns_tree_next = sc.total_lp_iterations + sc.lns_tree_wait.max(iters + sc.total_lp_iterations);
+                // (the tree's share of the LP iterations, mip_graph_lns_tree_share)
+                let round = (md.opts.mip_graph_lns_tree_share * (iters + sc.total_lp_iterations) as f64) as i64;
+                sc.lns_tree_next = sc.total_lp_iterations + sc.lns_tree_wait.max(round);
                 if md.check_limits_rs(0) {
                     break;
                 }
