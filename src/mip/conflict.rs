@@ -850,19 +850,6 @@ fn leq_reason(l: &mut Dom, g: &Dom, reason: Reason, pos: i32, col: i32) -> Optio
             let (inds, vals, rhs) = l.obj_propagation_constraint(pos, col);
             Some((collect(inds, vals, 1.0), rhs))
         }
-        // the clique of literal (index >> 1, index & 1) and the literal of
-        // `col` it set false: lit1 + lit2 <= 1, lit(x, 0) = 1 - x
-        REASON_CLIQUE_TABLE if col >= 0 => {
-            let (c1, v1) = (reason.index >> 1, reason.index & 1);
-            let v2 = (l.stack()[pos as usize].boundtype == LOWER) as i32 ^ 1;
-            let mut row = BTreeMap::new();
-            let mut rhs = 1.0;
-            for (c, v) in [(c1, v1), (col, v2)] {
-                *row.entry(c).or_insert(0.0) += if v == 1 { 1.0 } else { -1.0 };
-                rhs -= (v == 0) as i32 as f64;
-            }
-            Some((row, rhs))
-        }
         k if k >= 0 && (k as usize) < l.num_cutpools() => {
             let (inds, vals, rhs) = l.cut(k as usize, reason.index as usize);
             Some((collect(inds, vals, 1.0), rhs))
@@ -893,18 +880,21 @@ fn leq_reason(l: &mut Dom, g: &Dom, reason: Reason, pos: i32, col: i32) -> Optio
 /// coefficient of 1, with negligible coefficients relaxed away by global
 /// bounds
 fn combine(g: &Dom, (row, rhs): &Leq, lambda: f64, (rrow, rrhs): &Leq, col: i32) -> Option<Leq> {
+    let maxabs = |r: &BTreeMap<i32, f64>| r.values().fold(0.0f64, |m, v| m.max(v.abs()));
+    // the scale of the terms: cancellation below it is noise
+    let scale = maxabs(row).max(lambda * maxabs(rrow));
     let mut out = row.clone();
     for (&j, &v) in rrow {
         *out.entry(j).or_insert(0.0) += lambda * v;
     }
     out.remove(&col);
     let mut rhs = rhs + lambda * rrhs;
-    let maxabs = out.values().fold(0.0f64, |m, v| m.max(v.abs()));
-    if maxabs == 0.0 || !rhs.is_finite() {
+    let maxabs = maxabs(&out);
+    if maxabs <= 1e-6 * scale || !rhs.is_finite() {
         return None;
     }
     out.retain(|&j, v| {
-        if v.abs() > 1e-9 * maxabs {
+        if v.abs() > 1e-9 * scale {
             return true;
         }
         let b = if *v > 0.0 { g.col_lower[j as usize] } else { g.col_upper[j as usize] };
