@@ -9,7 +9,7 @@
 name: bench-dispatch
 on:
   push:
-    branches: ['bench-dispatch/**']
+    branches: ['bench-dispatch/**', 'bench-screen/**']
   workflow_dispatch:
     inputs:
       configs:
@@ -30,18 +30,23 @@ on:
         description: "Runners per architecture (16)"
       parallel:
         description: "Pairs at once on a runner, of 4 vCPUs (1)"
+      screen:
+        description: "Screening run: the 10 screen instances, 8 seeds, 120 s, 8 runners per arch, unless set above (bench-screen/* branches too)"
+        type: boolean
       starts:
         description: "MIP starts for configs with read_solution_file=@: sibling or shift (none; bench/dispatch.py starts)"
 
 env:
   CONFIGS: "${{ inputs.configs || 'main@main: ; head:' }}"
-  INSTANCES: "${{ inputs.instances || '*.mps.gz' }}"
-  SEEDS: "${{ inputs.seeds || '0-15' }}"
-  TIME_LIMIT: "${{ inputs.time_limit || '180' }}"
+  # screen: the motivating ticks plus the dispatch models most sensitive to
+  # past changes; a candidate passes it before a full run
+  INSTANCES: "${{ inputs.instances || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && 'hard_10-03_1340* diverse_10-01_0052* lambda_* dm_full_pert_s1_ramp* dm_full_randsoc_ramp* dm_medium_pert_s1_ramp* dm_medium_randsoc_noramp* dm_small_pert_s1_ramp*' || '*.mps.gz' }}"
+  SEEDS: "${{ inputs.seeds || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '0-7' || '0-15' }}"
+  TIME_LIMIT: "${{ inputs.time_limit || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '120' || '180' }}"
   THREADS: "${{ inputs.threads || '1' }}"
   GAP: "${{ inputs.mip_rel_gap || '0.01' }}"
   ARCHS: "${{ inputs.archs || 'x64,arm64' }}"
-  SHARDS: "${{ inputs.shards || '16' }}"
+  SHARDS: "${{ inputs.shards || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '8' || '16' }}"
   PARALLEL: "${{ inputs.parallel || '1' }}"
   STARTS: "${{ inputs.starts || '' }}"
 
