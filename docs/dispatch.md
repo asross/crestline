@@ -546,6 +546,48 @@ No change: with one or two tree turns per run, the share moves little
 time. The time that matters is the first deep search's, and the speed of
 graph LNS itself.
 
+## Sub-MIP heuristics alongside graph LNS (rejected, 2026-10-22)
+
+**Profile** (macOS `sample`, `diverse_10-01`, one thread, seed 0, 180 s):
+graph LNS 20% of the samples; branch and bound with its strong
+branching 23%; root separation 7%; and 26% in sub-MIPs, the root
+reduced-cost and RENS sub-MIPs after the deep search and RINS after the
+tree's dives (nested: the sub-MIPs run their own). Graph LNS itself has
+no sub-MIP: its neighbourhoods are re-solves of a copy of the LP
+relaxation. The heuristic effort budget, which graph LNS's LP iterations
+count against, lets the sub-MIPs run only where the deep search stopped
+early: 4 of the 32 one-thread runs of the attribution set, where they took
+21-65 s and found nothing (no sub-MIP incumbent in any run). On two
+threads the main solver runs them every time (23 s and 57 s on seed 0).
+
+**`mip_graph_lns_skip_root_submips`** (removed): no root reduced-cost,
+RENS or tree RINS sub-MIPs while the deep search's root round paid or a
+concurrent LNS helper runs.
+- Local, one thread, instruction clock, 8 seeds of the two ticks, 4 of
+  the five sensitive models and the Lambda ticks: identical except
+  `hard_10-03` seed 2 (-247098 -> -247266).
+- Screen (runs 39116283472 and 39116288052; 10 models, 8 seeds, 120 s):
+
+| | x86_64 | arm64 |
+|---|---|---|
+| one thread: solved models, time | 1.006 | 0.999 |
+| ... `hard_10-03` / `diverse_10-01` gap | -0.009 ± 0.021 / -0.001 ± 0.003 | -0.018 ± 0.041 / -0.003 ± 0.006 |
+| two threads: solved models, time | 1.037 | 0.996 |
+| ... `diverse_10-01` reaching 1% (of 8) | 2 -> 2 | 4 -> 6 |
+| ... `diverse_10-01` gap | -0.014 ± 0.081 | +0.001 ± 0.028 |
+| ... `dm_full_randsoc_ramp` time / mean primal gap | 1.026 [1.008, 1.044] / +0.104 ± 0.081 | 1.002 / -0.018 ± 0.092 |
+| ... `dm_full_pert_s1_ramp` mean primal gap | +0.104 ± 0.062 | +0.011 ± 0.025 |
+
+- `miplib-easy` at `mip_rel_gap = 0.01` (runs 39116318778, 39116323127):
+  64 of 66 identical; neos-1456979 solved on one x86 runner; nu25-pr12
+  ends at 54380 against an optimum of 53905 (bench-std's check prints
+  WRONG: within 1% of its dual bound 53845, so a 1% solve may stop
+  there; main found 53905 at the root, presumably by one of the skipped
+  sub-MIPs, not checked).
+
+No gain on the motivating ticks, small losses on two sensitive models on
+two threads, and a worse answer on a MIPLIB model: no full run.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -574,6 +616,7 @@ graph LNS itself.
 - Storage valid inequalities as root cuts (measured; see above).
 - A smaller share of LP iterations for the tree search between graph LNS
   rounds (see above).
+- Skipping the sub-MIP heuristics while graph LNS works (see above).
 - A trust region sub-MIP around a MIP start that cannot be completed
   (`mip_start_trust_radius`): 2.4-3.5 times the time to 1% of the best
   known (see "Warm starts" above).

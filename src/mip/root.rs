@@ -646,10 +646,6 @@ impl MipData {
             // the root heuristics below are pointless once the target gap is
             // reached
             let root_gap_closed = |m: &MipData| m.sc().lower_bound > m.sc().optimality_limit;
-            // (mip_graph_lns_skip_root_submips: graph LNS does the primal
-            // work, its deep search paid or a helper runs it)
-            let skip_submips =
-                o.mip_graph_lns_skip_root_submips && (self.sc().lns_tree_next >= 0 || self.own_lns().is_some());
             #[allow(clippy::never_loop)]
             loop {
                 if self.rootlpsol().is_empty() {
@@ -661,7 +657,7 @@ impl MipData {
                 if root_gap_closed(self) {
                     break;
                 }
-                if o.run_root_reduced_cost && !skip_submips {
+                if o.run_root_reduced_cost {
                     self.start(clk::ROOT_HEURISTICS_REDUCED_COST);
                     self.heur(w, heur::ROOT_REDUCED_COST);
                     self.stop(clk::ROOT_HEURISTICS_REDUCED_COST);
@@ -695,7 +691,7 @@ impl MipData {
                 if self.check_limits_rs(0) {
                     return self.clock_off_done();
                 }
-                if o.run_rens && !skip_submips {
+                if o.run_rens {
                     self.start(clk::ROOT_HEURISTICS_RENS);
                     self.heur(w, heur::RENS_ROOT);
                     self.stop(clk::ROOT_HEURISTICS_RENS);

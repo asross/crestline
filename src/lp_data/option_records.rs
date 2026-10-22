@@ -903,16 +903,6 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
-        name: "mip_graph_lns_skip_root_submips",
-        description: "Whether the sub-MIP heuristics (root reduced cost and RENS at the root, RINS in the tree) are skipped when graph LNS is doing the primal work: its deep search at the root improved the incumbent, or a concurrent LNS helper runs",
-        bool_default: false,
-        int: (0, 0, 0),
-        dbl: (0.0, 0.0, 0.0),
-        str_default: "",
-    },
-    Meta {
-        type_: BOOL,
-        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,
