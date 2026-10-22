@@ -1867,6 +1867,14 @@ unsafe fn setup_op(ms: &mut MipSolver, which: i32, _w: P, i: i64, _x: f64) -> f6
         329 => {
             d.root.as_mut().unwrap().sym_data = None;
             d.symmetries.determine_orbitope_types(&mut d.cliquetable);
+            if ms.opts.mip_symmetry_static_orbitopes {
+                for o in d.symmetries.orbitopes.iter_mut() {
+                    o.static_order = true;
+                }
+                let gd = d.get_domain();
+                let sd = gd.sym_dom();
+                d.symmetries.fix_static_orbitopes(&sd);
+            }
             if d.symmetries.num_perms != 0 {
                 let sym: *const Symmetries = &d.symmetries;
                 d.global_orbits = Some(Arc::new(StabS::compute(&*sym, d.get_domain())));
