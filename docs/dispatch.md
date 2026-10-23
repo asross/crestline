@@ -589,6 +589,51 @@ concurrent LNS helper runs.
 No gain on the motivating ticks, small losses on two sensitive models on
 two threads, and a worse answer on a MIPLIB model: no full run.
 
+## Graph LNS's own cost, and warm-started neighbourhood LPs (2026-10-23)
+
+**Where graph LNS's time goes** (the profile above, `diverse_10-01`, the
+graph LNS share of the samples, inclusive):
+
+| | share |
+|---|---|
+| the LP re-solves (`LpRelax::resolve_lp`) | 91% |
+| ... dual simplex iterations | 33% |
+| ... rebuilds (`compute_primal` 15% and `compute_dual` 10% in all, the factor's solve error check 4%) | 20% |
+| ... the KKT check after a solve (basic infeasibilities) | 4.7% |
+| domain propagation (fixings, flip screening) | 4.6% |
+| copies, allocation, neighbourhood and candidate building | < 1% |
+
+The rebuilds already reuse fresh duals and primal values where the
+values cannot change; what is left recomputes them (after bound changes,
+at the end of a solve, or to decide on refactorization), and skipping it
+would change paths. The largest piece outside the simplex, the KKT check,
+is about 1.5% of a run. No same-path saving here is worth more than 1-2%.
+
+**The first LP of each neighbourhood** takes 23% of graph LNS's LP
+iterations on `hard_10-03` and 19% on `diverse_10-01` (6 and 3 logs; 970
+and 280 iterations per BFS neighbourhood searched by branch and bound,
+420-450 per dived one, 60-70 per short-row one).
+
+**`mip_graph_lns_incumbent_basis`** (removed; implementation at tag `exp/lns-incumbent-basis`): each neighbourhood LP starts
+from the basis of the LP that gave the last incumbent of the graph LNS
+call (`setBasis`, so one refactorization), instead of the last LP
+solved. On `hard_10-03` seed 0 the first LPs take 227 iterations on
+average instead of 314 (median 61 instead of 127), and 52 neighbourhoods
+are searched instead of 41. Local screen (M1, instruction clock), against
+main:
+
+| | gap at 180 s, B - A | runs reaching 1% |
+|---|---|---|
+| one thread, `diverse_10-01` (8 seeds) | +0.044 ± 0.073 | 1 -> 0 |
+| one thread, `hard_10-03` (8 seeds) | +0.043 ± 0.151 | 0 -> 0 |
+| two threads, `diverse_10-01` (4 seeds) | -0.020 ± 0.095 | 2 -> 2 |
+| two threads, `hard_10-03` (4 seeds) | +0.008 ± 0.133 | 0 -> 0 |
+
+On the five sensitive models and the Lambda ticks (4 seeds), time
+0.977 (geometric mean; per model 0.79-1.19, every interval across 1).
+Cheaper first LPs buy more neighbourhoods, not better ones: no gain, so
+no runner screen.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -618,6 +663,7 @@ two threads, and a worse answer on a MIPLIB model: no full run.
 - A smaller share of LP iterations for the tree search between graph LNS
   rounds (see above).
 - Skipping the sub-MIP heuristics while graph LNS works (see above).
+- Neighbourhood LPs from the basis of the last incumbent's LP (see above).
 - A trust region sub-MIP around a MIP start that cannot be completed
   (`mip_start_trust_radius`): 2.4-3.5 times the time to 1% of the best
   known (see "Warm starts" above).
