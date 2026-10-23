@@ -746,7 +746,11 @@ impl Heur {
                 mv.size = if t == 3 { dive_size0 } else { dfs_size0 };
             }
         }
-        let mut deep_tries = [0i32; 4];
+        let mut deep_tries = [0i32; 5];
+        // (mip_graph_lns_lp_disagreement) the decision columns where the
+        // incumbent is more than 0.1 from the LP point
+        let disagree_on = m.opts.mip_graph_lns_lp_disagreement > 0;
+        let mut disagree: Vec<i32> = Vec::new();
         s.screen = Dom::copy(&gd);
         let mut it = 0;
         while since < max_stall && it < max_it {
@@ -762,12 +766,25 @@ impl Heur {
             // the quick search only dives; the deep search tries each type
             // once, then mostly the one closing the most gap per LP
             // iteration recently
-            let mut ty = 3;
+            if disagree_on {
+                // SAFETY: the global domain does not change here
+                let (glo, gup) = unsafe { bound_slices(&gd.bnd(), n) };
+                let inc = m.incumbent();
+                disagree.clear();
+                disagree.extend(decisioncols.iter().copied().filter(|&c| {
+                    let col = c as usize;
+                    glo[col] != gup[col] && (inc[col] - relaxationsol[col]).abs() > 0.1
+                }));
+            }
+            let disagree_ok = disagree_on && disagree.len() as f64 >= dfs_min_size;
+            // (with the option, every other quick neighbourhood is the LP
+            // disagreement)
+            let mut ty = if disagree_ok && it % 2 == 1 { 4 } else { 3 };
             if deep {
                 let fe = s.flips_exhausted();
-                ty = select_type(&s.h.lns_moves, &mut deep_tries, fe);
+                ty = select_type(&s.h.lns_moves, &mut deep_tries, fe, disagree_ok);
             }
-            let dived = ty == 3;
+            let dived = ty == 3 || (ty == 4 && m.opts.mip_graph_lns_lp_disagreement == 1);
             if ty == 2 {
                 let before = m.upper_bound();
                 let limit_before = m.optimality_limit();
@@ -806,8 +823,12 @@ impl Heur {
                 let (glo, gup) = unsafe { bound_slices(&gd.bnd(), n) };
                 // graph LNS runs outside the parallel lock: the heuristics'
                 // own generator
-                let rng = s.h.own_rng();
-                s.lns.build(&s.g, ty as i32, size.max(0) as usize, deep, m.incumbent(), relaxationsol, glo, gup, rng);
+                if ty == 4 {
+                    s.lns.set(&disagree);
+                } else {
+                    let rng = s.h.own_rng();
+                    s.lns.build(&s.g, ty as i32, size.max(0) as usize, deep, m.incumbent(), relaxationsol, glo, gup, rng);
+                }
             }
             let neighbourhood = s.lns.neighbourhood.clone();
 
@@ -943,6 +964,9 @@ impl Heur {
             t[3].improved,
             t[3].tried
         );
+        if disagree_on {
+            crate::log_dev!(log, LogType::Info, "%s LP disagreement: improved by %d/%d\n", who, t[4].improved, t[4].tried);
+        }
         s.charge_iterations();
     }
 }

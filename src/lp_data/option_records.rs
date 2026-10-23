@@ -901,6 +901,16 @@ pub const RECORDS: &[Meta] = &[
         str_default: "",
     },
     Meta {
+        type_: INT,
+        advanced: false,
+        name: "mip_graph_lns_lp_disagreement",
+        description: "Whether graph LNS has a neighbourhood of the decision columns where the incumbent is more than 0.1 from the LP point (the rest fixed at the incumbent): a fifth move of the deep search, and every other neighbourhood of the quick search (0: off; 1: dived; 2: searched by branch and bound)",
+        bool_default: false,
+        int: (0, 0, 2),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
         type_: BOOL,
         advanced: false,
         name: "mip_symmetry_static_orbitopes",
