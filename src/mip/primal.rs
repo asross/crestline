@@ -69,7 +69,7 @@ pub struct Heur {
     pub(crate) decision_cols_set_up: bool,
     /// a graph-LNS dive from the LP point found nothing: don't dive again
     pub(crate) lns_dive_failed: bool,
-    pub(crate) lns_moves: [LnsMove; 5],
+    pub(crate) lns_moves: [LnsMove; 4],
     pub(crate) lns_flip_obj: f64,
     pub(crate) lns_flip_next: i32,
     success_observations: f64,
@@ -161,7 +161,7 @@ impl Heur {
             decisioncols: Vec::new(),
             decision_cols_set_up: false,
             lns_dive_failed: false,
-            lns_moves: [LnsMove::default(); 5],
+            lns_moves: [LnsMove::default(); 4],
             lns_flip_obj: INF,
             lns_flip_next: 0,
             success_observations: 0.0,
@@ -219,7 +219,7 @@ impl Heur {
         let mut intcols = m.integer_cols().to_vec();
         self.decision_cols_set_up = false;
         self.decisioncols.clear();
-        self.lns_moves = [LnsMove::default(); 5];
+        self.lns_moves = [LnsMove::default(); 4];
         self.lns_flip_obj = INF;
         let feastol = m.feastol();
         let (up, down) = (m.uplocks(), m.downlocks());

@@ -416,7 +416,6 @@ impl MipSolver {
                 mip_root_lp_ipx: o.mip_root_lp_ipx,
                 mip_root_lp_effort_from_basis: o.mip_root_lp_effort_from_basis,
                 mip_graph_lns_deep_early: o.mip_graph_lns_deep_early,
-                mip_graph_lns_lp_disagreement: o.mip_graph_lns_lp_disagreement,
                 mip_symmetry_static_orbitopes: o.mip_symmetry_static_orbitopes,
             },
             helper_pool: self.concurrent_lns,

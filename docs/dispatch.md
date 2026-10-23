@@ -634,6 +634,54 @@ On the five sensitive models and the Lambda ticks (4 seeds), time
 Cheaper first LPs buy more neighbourhoods, not better ones: no gain, so
 no runner screen.
 
+## What a better incumbent looks like (oracle analysis, 2026-10-23)
+
+180 s one-thread incumbents (seeds 0-3, M1, instruction clock) against
+a 2 h two-thread reference of each tick (-248499 on `hard_10-03`,
+-248178 on `diverse_10-01`, the best known for the latter), compared on the
+original model's decision binaries (integer columns not implied by the
+others, as graph LNS defines them). Aggregates over the 4 seeds:
+
+| | `hard_10-03` | `diverse_10-01` |
+|---|---|---|
+| decision binaries that differ (of 1750 / 1718) | 205-212 | 106-229 |
+| ... of them bank charge switches | all but 0-1 | all but 0-2 |
+| clusters (moved columns within graph distance 4) | 3-4 | 3-8 |
+| largest cluster: size / periods / banks touched (of 22) | 168-182 / last 28 periods / 21-22 | 73-148 / last 16-21 periods / 18-22 |
+| moved switches per bank | 2-15 | 2-15 |
+| best BFS neighbourhood (all rows) per cluster, size 64 / 200 / 400: share of the move covered | 21-26% / 50-56% / 80-82% | 25-43% / 57-82% / 89-100% |
+| one BFS from the best seed, size 1000 | 87-92% | 86-96% |
+| short-row BFS | as all rows (within 3 points) | as all rows |
+
+**The move does not decompose.** Hybrids of the 180 s incumbent with the
+reference's switches over one window of periods (lengths 4, 8, 14 and
+28, every position; the other decision columns fixed at the incumbent,
+an LP for the rest) are infeasible in 48 of 50 windows on each tick, and
+none improves; the reference's switches of one bank over the whole
+horizon are infeasible for 21-23 of 28 banks, and none improves (seed
+0). A bank's charging at one period moves its state of charge in every
+later period (discharge is bounded below and above by fractions of the
+state of charge), and the per-period electricity and charging limits
+couple the banks. So the improvement is one coordinated move of about
+200 switches over half the horizon and nearly every bank; flips, swaps
+and small neighbourhoods cannot reach it through feasible steps.
+
+**What contains it** is the LP disagreement: the decision columns where
+the incumbent is more than 0.1 from the LP relaxation's point (no cuts)
+number 403-590 (23-34% of them) and contain 83-94% of the move (seeds
+0-1); at the usual 0.5 (RINS, graph LNS's disagreement seeds) only
+48-55%.
+
+**`mip_graph_lns_lp_disagreement`** (removed; implementation at tag
+`exp/lns-lp-disagreement`): that set as a neighbourhood (the rest fixed at
+the incumbent), a fifth move of the deep search and every other quick
+neighbourhood, dived (1) or searched by the 300-node branch and bound
+(2). Seed 0 of both ticks: 0 improvements in 26 tries (377-479 columns),
+and the incumbents at 180 s are worse than main's (the move takes the
+budget of the others). The set holds the move, but finding it inside
+400 binaries needs a real search; a sub-MIP over it is close to RINS,
+which ran 20-65 s on the tree without an incumbent (see above).
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -664,6 +712,7 @@ no runner screen.
   rounds (see above).
 - Skipping the sub-MIP heuristics while graph LNS works (see above).
 - Neighbourhood LPs from the basis of the last incumbent's LP (see above).
+- The LP disagreement set as a dived or searched neighbourhood (see above).
 - A trust region sub-MIP around a MIP start that cannot be completed
   (`mip_start_trust_radius`): 2.4-3.5 times the time to 1% of the best
   known (see "Warm starts" above).
