@@ -98,6 +98,9 @@ struct GraphLns<'a> {
     flip_max_iters: i64,
     /// the dives' LP iteration budget (mip_graph_lns_deep_early; else none)
     dive_cap: i64,
+    /// the basis of the LP that gave the last incumbent
+    /// (mip_graph_lns_incumbent_basis)
+    inc_basis: std::cell::RefCell<Option<crate::lp_data::lp_run::Basis>>,
 }
 
 impl GraphLns<'_> {
@@ -117,7 +120,11 @@ impl GraphLns<'_> {
             return false;
         }
         let sol = self.lp.col_value().to_vec();
-        glue::add_incumbent(self.m, self.w, &sol, self.lp.objective(), source::GRAPH_LNS)
+        let added = glue::add_incumbent(self.m, self.w, &sol, self.lp.objective(), source::GRAPH_LNS);
+        if added && self.m.opts.mip_graph_lns_incumbent_basis {
+            *self.inc_basis.borrow_mut() = Some(self.lp.basis());
+        }
+        added
     }
 
     /// put `dom` back to `snap` and push the undone bounds back into the LP
@@ -697,6 +704,7 @@ impl Heur {
             screened: 0,
             flip_max_iters: 5000i64.max(m.firstrootlpiters()),
             dive_cap: i64::MAX,
+            inc_basis: Default::default(),
         };
         if m.opts.mip_graph_lns_deep_early {
             s.dive_cap = heur_iters_cap;
@@ -838,6 +846,9 @@ impl Heur {
             let before = m.upper_bound();
             let limit_before = m.optimality_limit();
             let gap_before = before - m.lower_bound();
+            if let Some(b) = &*s.inc_basis.borrow() {
+                s.lp.set_basis(b, "graph LNS incumbent");
+            }
             let st = s.solve(&dom);
             let nb_lp_iters = s.lp.num_lp_iterations() - start_iters;
             let mut nodes = 0;

@@ -903,6 +903,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_graph_lns_incumbent_basis",
+        description: "Whether each graph LNS neighbourhood LP starts from the basis of the LP that gave the last incumbent (within one graph LNS call), rather than from the last LP solved",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,

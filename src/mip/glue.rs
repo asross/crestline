@@ -356,6 +356,7 @@ pub struct MipOptions {
     pub mip_root_lp_ipx: bool,
     pub mip_root_lp_effort_from_basis: bool,
     pub mip_graph_lns_deep_early: bool,
+    pub mip_graph_lns_incumbent_basis: bool,
 }
 
 /// The original model (for solutions in the original space)
@@ -804,6 +805,14 @@ impl Lp {
     }
     pub fn infeasible_conflict(&self, w: &Worker, localdom: &Dom) {
         c!(lp_infeasible_conflict, self.p, w.p, localdom.p)
+    }
+    /// the LP solver's basis (a copy)
+    pub fn basis(&self) -> crate::lp_data::lp_run::Basis {
+        self.lph().basis().clone()
+    }
+    /// setBasis(basis, origin)
+    pub fn set_basis(&self, basis: &crate::lp_data::lp_run::Basis, origin: &str) {
+        self.lph().set_basis(basis.clone(), origin);
     }
     pub fn put_iterate(&self) -> bool {
         self.lph().put_iterate() == crate::lp_data::Status::Ok
