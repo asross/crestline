@@ -647,10 +647,10 @@ others, as graph LNS defines them). Aggregates over the 4 seeds:
 | decision binaries that differ (of 1750 / 1718) | 205-212 | 106-229 |
 | ... of them bank charge switches | all but 0-1 | all but 0-2 |
 | clusters (moved columns within graph distance 4) | 3-4 | 3-8 |
-| largest cluster: size / periods / banks touched (of 22) | 168-182 / last 28 periods / 21-22 | 73-148 / last 16-21 periods / 18-22 |
-| moved switches per bank | 2-15 | 2-15 |
+| largest cluster: size / periods / banks touched (of 28) | 168-182 / last 28 periods / 21-22 | 73-148 / last 16-21 periods / 18-22 |
+| moved switches per bank (of 56) | 1-19 | 1-26 |
 | best BFS neighbourhood (all rows) per cluster, size 64 / 200 / 400: share of the move covered | 21-26% / 50-56% / 80-82% | 25-43% / 57-82% / 89-100% |
-| one BFS from the best seed, size 1000 | 87-92% | 86-96% |
+| one BFS from the best seed, size 1000 | 87-92% | 95-97% |
 | short-row BFS | as all rows (within 3 points) | as all rows |
 
 **The move does not decompose.** Hybrids of the 180 s incumbent with the
@@ -663,14 +663,14 @@ horizon are infeasible for 21-23 of 28 banks, and none improves (seed
 later period (discharge is bounded below and above by fractions of the
 state of charge), and the per-period electricity and charging limits
 couple the banks. So the improvement is one coordinated move of about
-200 switches over half the horizon and nearly every bank; flips, swaps
+200 switches over half the horizon and most banks; flips, swaps
 and small neighbourhoods cannot reach it through feasible steps.
 
 **What contains it** is the LP disagreement: the decision columns where
 the incumbent is more than 0.1 from the LP relaxation's point (no cuts)
-number 403-590 (23-34% of them) and contain 83-94% of the move (seeds
+number 403-519 (23-30% of them) and contain 83-89% of the move (seeds
 0-1); at the usual 0.5 (RINS, graph LNS's disagreement seeds) only
-48-55%.
+46-54%.
 
 **`mip_graph_lns_lp_disagreement`** (removed; implementation at tag
 `exp/lns-lp-disagreement`): that set as a neighbourhood (the rest fixed at
