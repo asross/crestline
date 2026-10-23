@@ -57,6 +57,7 @@ def run(binary, inst, opts):
         if "crest" in Path(binary).name:
             f.write("mip_graph_lns_cost_perturbation = true\n")
             f.write("mip_symmetry_static_orbitopes = false\n")
+            f.write("mip_dual_proof_tiny_bound_terms = false\n")
     try:
         if sys.platform == "darwin":
             r = subprocess.run(["/usr/bin/time", "-l", binary, "--options_file", f.name, str(inst)],

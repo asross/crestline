@@ -717,6 +717,7 @@ unsafe extern "C" fn lp_mip(p: *mut c_void, m: *mut CLpMip) {
         feastol: d.sc.feastol,
         epsilon: d.sc.epsilon,
         small_matrix_value: ms.opts.small_matrix_value,
+        proof_tiny_bound_terms: ms.opts.mip_dual_proof_tiny_bound_terms,
         uplocks: d.vecs.uplocks.as_slice().as_ptr(),
         downlocks: d.vecs.downlocks.as_slice().as_ptr(),
         col_cost: model.col_cost.as_ptr(),

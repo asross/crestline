@@ -157,7 +157,7 @@ $F/empty.mps
 --ranging on --solution_file - $I/afiro.mps
 --write_basis_file - $I/afiro.mps
 --options_file improving.set $I/egout.mps
---options_file improving2.set $I/bell5.mps
+--options_file improving2.set $I/bell5.mps # differs: mip_dual_proof_tiny_bound_terms (crest default on)
 --options_file improving.set $I/semi-continuous.lp
 --options_file image.set $I/afiro.mps
 --options_file presolved_lp.set $I/egout.mps

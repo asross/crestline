@@ -903,6 +903,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_dual_proof_tiny_bound_terms",
+        description: "Whether tiny coefficients of a dual (infeasibility or bound) proof move to its right-hand side with their global bound; false drops them, as HiGHS, which can make the proof cut off feasible solutions",
+        bool_default: true,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_symmetry_static_orbitopes",
         description: "Whether orbitopes with set packing rows are handled in a static row order from the root on (orbitopal fixing of the triangle on the global domain, symmetries finished after the first root LP) rather than in the order of the branching rows (as in HiGHS)",
         bool_default: true,
