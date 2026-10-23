@@ -1276,6 +1276,7 @@ impl LpRelax {
         if out.use_simplex {
             itercount = std::cmp::max(0, v.simplex_iteration_count) as i64;
             self.sh.numlpiters += itercount;
+            super::concurrent::add_work(itercount);
         }
         if out.callstatus == CALL_ERROR {
             drop(lb);

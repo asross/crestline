@@ -674,6 +674,7 @@ options! {
     run_centring: bool = false;
     max_centring_steps: int = 5;
     centring_ratio_tolerance: double = 100.0;
+    mip_deterministic: bool = false;
 }
 
 // ---- The C++ HighsOptions' typed copy
@@ -764,7 +765,7 @@ mod tests {
     #[test]
     fn names_set_and_get() {
         let mut o = Opts::default();
-        assert_eq!(NAMES.len(), 168);
+        assert_eq!(NAMES.len(), 169);
         assert!(o.set("presolve", OptValue::Str(b"off")));
         assert_eq!(o.presolve, b"off");
         assert!(o.set("time_limit", OptValue::Int(3)));

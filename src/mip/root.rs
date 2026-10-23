@@ -307,7 +307,9 @@ impl MipData {
             let race = if no_basis && o.mip_root_lp_ipx && !self.submip {
                 2
             } else {
-                (no_basis && self.ob(op::USE_CONCURRENT_HELPER)) as i64
+                // not in a deterministic solve: which solver wins depends on
+                // the timing
+                (no_basis && self.ob(op::USE_CONCURRENT_HELPER) && !o.mip_deterministic) as i64
             };
             self.oi(op::LP_SET_RACE_IPX, race);
             let mut status = self.eval_root_lp_timed(w);

@@ -18,7 +18,7 @@ use super::glue::{self, lp_status, MipData, Worker, P};
 use super::root::op as rop;
 use crate::lp_data::LogType;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU64, Ordering::*};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 const INF: f64 = f64::INFINITY;
 /// kSolutionSourceGraphLns
@@ -61,8 +61,143 @@ pub struct RootCuts {
     pub integral: Vec<u8>,
 }
 
+/// What one side of a deterministic exchange shows the other at a sync
+/// point: its state there, stamped with its work clock (i64::MAX once it
+/// is done)
+#[derive(Clone)]
+struct Snap {
+    work: i64,
+    lower_bound: f64,
+    /// its incumbent (INF: none)
+    objective: f64,
+    solution: Arc<Vec<f64>>,
+    /// main: its quick search is done (its incumbent is then the
+    /// crossover partner); helper: still independent, its root cuts are
+    /// published, the crossover's state and log values
+    quick_done: bool,
+    independent: bool,
+    root_cuts: bool,
+    crossover: (i32, i32, f64, f64),
+}
+
+/// A side's own state in a deterministic exchange
+#[derive(Default)]
+struct Local {
+    /// the objective of the other side's solution last tried
+    seen: f64,
+    /// main: its quick search is done; still independent (until the
+    /// final sync); the helper's root cuts are there, its root bound
+    quick_done: bool,
+    independent: bool,
+    root_cuts: bool,
+    helper_lower_bound: f64,
+    /// helper: the main solver's crossover partner; the crossover's state
+    /// and log values (main: 3 once logged)
+    partner: Option<(Arc<Vec<f64>>, f64)>,
+    crossover: (i32, i32, f64, f64),
+    /// wall seconds spent waiting for the other side
+    waited: f64,
+}
+
+/// mip_deterministic: the two sides exchange only at their sync points,
+/// each publishing its state stamped with its work clock (the LP
+/// iterations of its thread, sub-MIPs included, as they happen) and taking
+/// the other's latest state of at most RATIO times its own work, waiting
+/// until the other's clock is beyond that. Which state is taken depends
+/// only on the work counts, so a run with a given seed takes the same path
+/// however the threads are scheduled (unless it stops at the time limit)
+struct Det {
+    snaps: Mutex<[Vec<Snap>; 2]>,
+    cv: Condvar,
+    /// each side's work clock as it goes: beyond a target, no state of
+    /// work at most the target is still to come
+    live: [AtomicI64; 2],
+    local: [Mutex<Local>; 2],
+    /// the clock at the time limit: no waiting beyond it
+    deadline: f64,
+}
+
+/// The other side's state taken at work w is its state at RATIO * w (both
+/// ways; RATIO^2 < 1, or the two could wait for each other for ever)
+const RATIO: f64 = 0.5;
+
+thread_local! {
+    /// The LP iterations of this thread's LP solves: the work clock
+    static WORK: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    /// the live clock of the deterministic exchange side this thread is
+    static LIVE: std::cell::Cell<*const AtomicI64> = const { std::cell::Cell::new(std::ptr::null()) };
+}
+
+/// Counts LP iterations on this thread's work clock
+pub fn add_work(n: i64) {
+    let w = WORK.with(|c| {
+        c.set(c.get() + n);
+        c.get()
+    });
+    let live = LIVE.with(|c| c.get());
+    if !live.is_null() {
+        // SAFETY: set by a side of a live exchange, cleared before it ends
+        unsafe { (*live).store(w, SeqCst) };
+    }
+}
+
+impl Det {
+    fn new(deadline: f64) -> Det {
+        let local = || Mutex::new(Local { seen: INF, helper_lower_bound: -INF, ..Default::default() });
+        Det {
+            snaps: Mutex::new([Vec::new(), Vec::new()]),
+            cv: Condvar::new(),
+            live: [AtomicI64::new(0), AtomicI64::new(0)],
+            local: [local(), local()],
+            deadline,
+        }
+    }
+    /// This thread is side `who` (its work clock from 0), or no side
+    fn attach(&self, who: Option<usize>) {
+        WORK.with(|c| c.set(0));
+        LIVE.with(|c| c.set(who.map_or(std::ptr::null(), |w| &self.live[w] as *const AtomicI64)));
+    }
+    fn publish(&self, who: usize, snap: Snap) {
+        self.snaps.lock().unwrap()[who].push(snap);
+        self.cv.notify_all();
+    }
+    /// The other side's latest state of work at most `target`, once its
+    /// clock is beyond it; drops its older states
+    fn take(&self, who: usize, target: i64) -> Option<Snap> {
+        let other = 1 - who;
+        let t0 = std::time::Instant::now();
+        let mut b = self.snaps.lock().unwrap();
+        while b[other].last().is_none_or(|s| s.work <= target)
+            && self.live[other].load(SeqCst) <= target
+            // past the time limit the run stops where it is anyway
+            && crate::util::clock::now() < self.deadline
+        {
+            // the other side's LP solves move its clock without a
+            // notification: poll
+            b = self.cv.wait_timeout(b, std::time::Duration::from_millis(2)).unwrap().0;
+        }
+        self.local[who].lock().unwrap().waited += t0.elapsed().as_secs_f64();
+        let v = &mut b[other];
+        let k = v.iter().rposition(|s| s.work <= target)?;
+        v.drain(..k);
+        Some(v[0].clone())
+    }
+    /// The side is done: the other no longer waits for it
+    fn done(&self, who: usize) {
+        self.live[who].store(i64::MAX, SeqCst);
+        let mut b = self.snaps.lock().unwrap();
+        if let Some(last) = b[who].last().cloned().filter(|s| s.work != i64::MAX) {
+            b[who].push(Snap { work: i64::MAX, ..last });
+        }
+        self.cv.notify_all();
+    }
+}
+
 /// HighsConcurrentLns
 pub struct Pool {
+    /// mip_deterministic's exchange (then the fields above root_cuts are
+    /// unused)
+    det: Option<Det>,
     best: Mutex<Best>,
     version: AtomicI64,
     stop: AtomicBool,
@@ -150,6 +285,9 @@ pub struct Main {
 impl Drop for Main {
     /// stopConcurrentLns
     fn drop(&mut self) {
+        if let Some(d) = &self.pool.det {
+            d.done(0);
+        }
         self.pool.stop.store(true, SeqCst);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
@@ -194,14 +332,14 @@ impl MipData {
 
     /// addIncumbent in a helper: offer the incumbent
     pub fn concurrent_offer(&self, upper_bound: f64) {
-        if let Some(p) = self.helper_lns() {
+        if let Some(p) = self.helper_lns().filter(|p| p.det.is_none()) {
             p.offer(self.incumbent(), upper_bound);
         }
     }
     /// addIncumbent in a helper: its solution within the target gap of its
     /// main solver's bound finishes the main solve
     pub fn concurrent_target(&self, optimality_limit: f64) {
-        if let Some(p) = self.helper_lns() {
+        if let Some(p) = self.helper_lns().filter(|p| p.det.is_none()) {
             if p.main_lower_bound.load() > optimality_limit {
                 p.target_reached.store(true, SeqCst);
             }
@@ -220,7 +358,12 @@ impl MipData {
         if time_left < 1.0 {
             return;
         }
+        let det = self.opts.mip_deterministic.then(|| Det::new(crate::util::clock::now() + time_left));
+        if let Some(d) = &det {
+            d.attach(Some(0));
+        }
         let pool = Arc::new(Pool {
+            det,
             best: Mutex::new(Best { objective: INF, own_objective: [INF; 2], ..Default::default() }),
             version: AtomicI64::new(0),
             stop: AtomicBool::new(false),
@@ -252,9 +395,16 @@ impl MipData {
             .stack_size(8 << 20)
             .spawn(move || {
                 let data = data;
+                if let Some(d) = &shared.det {
+                    d.attach(Some(1));
+                }
                 // SAFETY: the C++ helper run on its data, which it frees;
                 // the pool outlives it (this thread holds a reference)
-                unsafe { run(data.0, Arc::as_ptr(&shared) as *const std::ffi::c_void) }
+                unsafe { run(data.0, Arc::as_ptr(&shared) as *const std::ffi::c_void) };
+                if let Some(d) = &shared.det {
+                    d.done(1);
+                    d.attach(None);
+                }
             })
             .expect("concurrent LNS helper thread");
         sc.concurrent_lns = Box::into_raw(Box::new(Main { pool, thread: Some(thread) }));
@@ -267,7 +417,90 @@ impl MipData {
         let p = std::mem::replace(&mut sc.concurrent_lns, std::ptr::null_mut());
         if !p.is_null() {
             // SAFETY: from Box::into_raw in start_concurrent_lns
-            drop(unsafe { Box::from_raw(p) });
+            let main = unsafe { Box::from_raw(p) };
+            if let Some(d) = &main.pool.det {
+                d.attach(None);
+                let (m, h) = (d.local[0].lock().unwrap().waited, d.local[1].lock().unwrap().waited);
+                crate::log_dev!(self.log, LogType::Info, "Deterministic exchange: main waited %.2fs, helper %.2fs\n", m, h);
+            }
+            drop(main);
+        }
+    }
+
+    /// This side's state for the other (deterministic exchange)
+    fn snap(&self, pool: &Pool, d: &Det, who: usize) -> Snap {
+        let sc = self.sc();
+        let l = d.local[who].lock().unwrap();
+        Snap {
+            work: WORK.with(|c| c.get()),
+            lower_bound: sc.lower_bound,
+            objective: if self.incumbent().is_empty() { INF } else { sc.upper_bound },
+            solution: Arc::new(self.incumbent().to_vec()),
+            quick_done: l.quick_done,
+            independent: pool.independent(),
+            root_cuts: pool.root_cuts.get().is_some(),
+            crossover: l.crossover,
+        }
+    }
+
+    /// syncConcurrentLns of the deterministic exchange: publish this side's
+    /// state, take the other's
+    fn sync_det(&self, pool: &Pool, d: &Det, helper: bool) {
+        let who = helper as usize;
+        let snap = self.snap(pool, d, who);
+        let target = (RATIO * snap.work as f64) as i64;
+        d.publish(who, snap);
+        if target < 1 {
+            return;
+        }
+        let Some(o) = d.take(who, target) else { return };
+        // while the two search independently (until the crossover), each
+        // only offers its incumbents: the main solver takes the best at
+        // the end
+        let independent = if helper {
+            let mut l = d.local[1].lock().unwrap();
+            if o.quick_done && l.partner.is_none() && !o.solution.is_empty() {
+                l.partner = Some((o.solution.clone(), o.objective));
+            }
+            pool.independent()
+        } else {
+            let mut l = d.local[0].lock().unwrap();
+            l.root_cuts = o.root_cuts;
+            l.helper_lower_bound = o.lower_bound;
+            let independent = o.independent && l.independent;
+            drop(l);
+            // the helper's bound is valid for the same model; the tree
+            // search has its own
+            if self.sc().num_nodes == 0 && o.lower_bound > self.sc().lower_bound {
+                self.update_lower_bound_ex(o.lower_bound, true, true);
+            }
+            let (state, differ, before, after) = o.crossover;
+            if state >= 1 && !self.sc().crossover_start_logged {
+                self.sc().crossover_start_logged = true;
+                crate::log_user!(self.log, LogType::Info, "Crossover of the two searches' solutions started\n");
+            }
+            let mut l = d.local[0].lock().unwrap();
+            if state == 2 && l.crossover.0 != 3 {
+                l.crossover.0 = 3;
+                drop(l);
+                crate::log_user!(
+                    self.log,
+                    LogType::Info,
+                    "Crossover (%d integer columns differ): %.12g -> %.12g\n",
+                    differ,
+                    before + self.offset,
+                    after + self.offset
+                );
+            }
+            independent
+        };
+        if !independent && o.objective < self.sc().upper_bound {
+            let mut l = d.local[who].lock().unwrap();
+            if o.objective < l.seen {
+                l.seen = o.objective;
+                drop(l);
+                self.try_solution_rs(&o.solution, SOURCE_GRAPH_LNS);
+            }
         }
     }
 
@@ -275,6 +508,9 @@ impl MipData {
     pub fn sync_concurrent_lns(&self) {
         let helper = self.helper_lns();
         let Some(pool) = helper.or(self.own_lns()) else { return };
+        if let Some(d) = &pool.det {
+            return self.sync_det(pool, d, helper.is_some());
+        }
         // while the two search independently (until the crossover), each
         // only offers its incumbents: the main solver takes the best at
         // the end
@@ -334,7 +570,12 @@ impl MipData {
     /// the helper's crossover
     pub fn concurrent_main_quick_done(&self) {
         if let Some(p) = self.own_lns() {
-            if p.independent() {
+            if let Some(d) = &p.det {
+                if d.local[0].lock().unwrap().independent {
+                    d.local[0].lock().unwrap().quick_done = true;
+                    self.sync_concurrent_lns();
+                }
+            } else if p.independent() {
                 self.sync_concurrent_lns();
                 p.main_quick_done.store(true, SeqCst);
             }
@@ -345,6 +586,12 @@ impl MipData {
     /// solution is taken even if no crossover took place; returns the
     /// helper's lower bound
     pub fn concurrent_final_sync(&self) -> f64 {
+        if let Some(d) = self.own_lns().and_then(|p| p.det.as_ref()) {
+            d.local[0].lock().unwrap().independent = false;
+            self.sync_concurrent_lns();
+            d.done(0);
+            return d.local[0].lock().unwrap().helper_lower_bound;
+        }
         if let Some(p) = self.own_lns() {
             p.independent.store(false, SeqCst);
         }
@@ -359,6 +606,9 @@ impl MipData {
     /// exchange incumbents as usual
     pub fn crossover_with_main(&self, w: &Worker) {
         let Some(pool) = self.helper_lns() else { return };
+        if let Some(d) = &pool.det {
+            return self.crossover_det(pool, d, w);
+        }
         // the main solver's partner solution is the end of its quick search
         if !pool.independent() || !pool.main_quick_done.load(SeqCst) {
             return;
@@ -386,6 +636,31 @@ impl MipData {
         self.sync_concurrent_lns();
     }
 
+    /// crossoverWithMain of the deterministic exchange
+    fn crossover_det(&self, pool: &Pool, d: &Det, w: &Worker) {
+        if !pool.independent() {
+            return;
+        }
+        // the main solver's partner solution is the end of its quick search
+        self.sync_concurrent_lns();
+        let Some((other, other_objective)) = d.local[1].lock().unwrap().partner.clone() else { return };
+        pool.independent.store(false, SeqCst);
+        if self.incumbent().is_empty() {
+            return;
+        }
+        d.local[1].lock().unwrap().crossover = (1, 0, cmin(self.sc().upper_bound, other_objective), 0.0);
+        let time_limit = self.opts.time_limit;
+        // SAFETY: the solver's heuristics, used as by the C++ crossover call
+        let heur = unsafe { &*self.heur };
+        let differ =
+            heur.crossover(self, w, &other, other_objective, if time_limit < INF { 0.2 * time_limit } else { INF });
+        {
+            let mut l = d.local[1].lock().unwrap();
+            l.crossover = (2, differ, l.crossover.2, self.sc().upper_bound);
+        }
+        self.sync_concurrent_lns();
+    }
+
     /// publishRootCuts: the helper hands its root cuts to the main solver,
     /// which adds them to its own when it gets to its root cuts. The LP's
     /// cut rows come from C++ (setRootCuts)
@@ -401,6 +676,10 @@ impl MipData {
     pub fn import_root_cuts(&self, w: &Worker) -> bool {
         let Some(pool) = self.own_lns() else { return false };
         if self.sc().root_cuts_imported {
+            return false;
+        }
+        // deterministic: once a state of the helper taken says they are there
+        if pool.det.as_ref().is_some_and(|d| !d.local[0].lock().unwrap().root_cuts) {
             return false;
         }
         let Some(cuts) = pool.root_cuts.get() else { return false };
@@ -482,6 +761,7 @@ mod tests {
 
     fn pool() -> Pool {
         Pool {
+            det: None,
             best: Mutex::new(Best { objective: INF, own_objective: [INF; 2], ..Default::default() }),
             version: AtomicI64::new(0),
             stop: AtomicBool::new(false),
@@ -514,5 +794,41 @@ mod tests {
         p.offer_own(1, &[7.0], 3.0);
         assert!(p.own_best(0).is_none());
         assert_eq!(p.own_best(1), Some((vec![7.0], 3.0)));
+    }
+
+    fn snap(work: i64, objective: f64) -> Snap {
+        Snap {
+            work,
+            lower_bound: -INF,
+            objective,
+            solution: Arc::new(vec![objective]),
+            quick_done: false,
+            independent: false,
+            root_cuts: false,
+            crossover: (0, 0, 0.0, 0.0),
+        }
+    }
+
+    /// The state taken depends only on the work stamps, not on how far the
+    /// other side has got beyond them
+    #[test]
+    fn det_take_by_work() {
+        let d = Det::new(INF);
+        d.publish(1, snap(10, 5.0));
+        d.publish(1, snap(30, 4.0));
+        d.publish(1, snap(50, 3.0));
+        assert_eq!(d.take(0, 35).unwrap().objective, 4.0);
+        assert_eq!(d.take(0, 49).unwrap().objective, 4.0);
+        d.publish(1, snap(70, 2.0));
+        assert_eq!(d.take(0, 50).unwrap().objective, 3.0);
+        d.done(1);
+        assert_eq!(d.take(0, 1000).unwrap().objective, 2.0);
+        // a waiting side wakes once the other's clock passes the target
+        let d = Arc::new(Det::new(INF));
+        let d2 = d.clone();
+        let t = std::thread::spawn(move || d2.take(1, 20).map(|s| s.objective));
+        d.publish(0, snap(15, 9.0));
+        d.publish(0, snap(25, 8.0));
+        assert_eq!(t.join().unwrap(), Some(9.0));
     }
 }

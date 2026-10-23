@@ -356,6 +356,7 @@ pub struct MipOptions {
     pub mip_root_lp_ipx: bool,
     pub mip_root_lp_effort_from_basis: bool,
     pub mip_graph_lns_deep_early: bool,
+    pub mip_deterministic: bool,
     pub mip_symmetry_static_orbitopes: bool,
 }
 
