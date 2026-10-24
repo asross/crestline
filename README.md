@@ -30,7 +30,8 @@ FMA instructions, or gcc with `-ffp-contract=off`); `libstdcxx` follows
 libstdc++'s tie orders instead of libc++'s; `hyper_dfs` makes the
 hyper-sparse triangular solves by HiGHS's depth-first search (by default
 they run in the dense solve's order over a bitmap, which can differ from
-HiGHS in the last bits). It is all Rust (no C++
+HiGHS in the last bits); `highs_dual_proofs` keeps HiGHS's dual proofs,
+which drop tiny coefficients and can then be invalid (for the oracle only). It is all Rust (no C++
 compiler needed); its only crates.io dependency is flate2 (pure-Rust
 miniz_oxide backend) for gzip-compressed model files.
 
@@ -67,7 +68,7 @@ Details: [docs/porting.md](./docs/porting.md).
 
 ## Verification
 
-Built with the `hyper_dfs` feature and run with the options that restore
+Built with the `hyper_dfs` and `highs_dual_proofs` features and run with the options that restore
 HiGHS's behaviour (`mip_graph_lns_cost_perturbation = true`,
 `mip_root_lp_devex_density = inf`), Crestline makes the same
 floating-point operations in the same order as the C++ HiGHS it derives
@@ -82,15 +83,16 @@ CI (`.github/workflows/ci.yml`) runs on Linux x86_64:
   `cargo build --release --bin crest`;
 - an oracle job: it builds the C++ `highs` app from a pinned HiGHS commit
   with gcc and `-ffp-contract=off`, builds crest with the `libstdcxx`,
-  `no_fma` and `hyper_dfs` features (which follow libstdc++'s tie orders,
-  unfused multiply-adds and HiGHS's hyper-sparse solves), and runs `bench/quick_check.sh`: Netlib LPs with presolve
+  `no_fma`, `hyper_dfs` and `highs_dual_proofs` features (which follow
+  libstdc++'s tie orders, unfused multiply-adds, HiGHS's hyper-sparse
+  solves and its dual proofs), and runs `bench/quick_check.sh`: Netlib LPs with presolve
   on and off, MIPs at a 200-node limit, the full logs of every LP-format
   test model and gzip models, and the 166 command lines of
   `bench/cli_cases.txt` (`bench/cli_compare.sh`), comparing outputs and
   written files.
 
 Locally, against a clang build of the C++ app on macOS, a build with
-`--features hyper_dfs` matches (and so does an x86-64-v3 build under Rosetta): `HIGHS_DIR=<HiGHS
+`--features "hyper_dfs highs_dual_proofs"` matches (and so does an x86-64-v3 build under Rosetta): `HIGHS_DIR=<HiGHS
 checkout> bench/quick_check.sh <highs> target/release/crest`.
 
 _Crestline is MIT-licensed; it derives from HiGHS (Copyright (c) HiGHS developers, MIT)._

@@ -51,7 +51,7 @@ jobs:
           cmake --build build-cpp --parallel 4 --target highs-bin
       - name: Build crest (exact, generic, default, PGO; main)
         run: |
-          EXACT="libstdcxx no_fma hyper_dfs"
+          EXACT="libstdcxx no_fma hyper_dfs highs_dual_proofs"
           cargo build --release --bin crest --features "$EXACT"
           cp target/release/crest crest-generic
           RUSTFLAGS="$FLAGS" cargo build --release --bin crest --features "$EXACT"

@@ -123,6 +123,17 @@ pub struct CLpView {
 /// a call). The global domain is the worker's when the parallel lock is
 /// active and the LP has a worker, else the MIP solver's (likewise the
 /// upper limit).
+/// The term val * x of a dual proof moved to its right-hand side with the
+/// global bound that keeps the proof valid (x >= glb for val > 0, x <= gub
+/// for val < 0); None if that bound is infinite
+fn proof_bound_term(val: f64, glb: f64, gub: f64) -> Option<f64> {
+    if val < 0.0 {
+        (gub != INF).then(|| val * gub)
+    } else {
+        (glb != -INF).then(|| val * glb)
+    }
+}
+
 #[repr(C)]
 pub struct CLpMip {
     pub num_model_row: i32,
@@ -1076,9 +1087,12 @@ impl LpRelax {
                 sum -= lp.a_value[j] * rd;
             }
             let val = sum.to_f64();
-            if val.abs() <= m.m.small_matrix_value {
+            if val == 0.0 || (cfg!(feature = "highs_dual_proofs") && val.abs() <= m.m.small_matrix_value) {
                 continue;
             }
+            // a tiny entry still moves to the right-hand side with its
+            // global bound: dropping it would strengthen the proof (by up to
+            // |val| times the bound, which can cut off feasible points)
             let mut remove = val.abs() <= feastol;
             if !remove && (glb[i] == gub[i] || m.is_continuous(i as i32)) {
                 remove = if val > 0.0 {
@@ -1088,17 +1102,7 @@ impl LpRelax {
                 };
             }
             if remove {
-                if val < 0.0 {
-                    if gub[i] == INF {
-                        return None;
-                    }
-                    upper -= val * gub[i];
-                } else {
-                    if glb[i] == -INF {
-                        return None;
-                    }
-                    upper -= val * glb[i];
-                }
+                upper -= proof_bound_term(val, glb[i], gub[i])?;
                 continue;
             }
             vals.push(val);
@@ -1171,9 +1175,11 @@ impl LpRelax {
         for &i in &self.row_ap.nonzeroinds {
             let iu = i as usize;
             let val = self.row_ap.get_value(i);
-            if val.abs() <= eps {
+            if val == 0.0 || (cfg!(feature = "highs_dual_proofs") && val.abs() <= eps) {
                 continue;
             }
+            // tiny entries move to the right-hand side with their global
+            // bound, as in dual_proof
             let mut remove = val.abs() <= feastol;
             if !remove && (glb[iu] == gub[iu] || m.is_continuous(i)) {
                 remove = if val > 0.0 {
@@ -1183,18 +1189,12 @@ impl LpRelax {
                 };
             }
             if remove {
-                if val < 0.0 {
-                    if gub[iu] == INF {
+                match proof_bound_term(val, glb[iu], gub[iu]) {
+                    Some(t) => upper -= t,
+                    None => {
                         ok = false;
                         break;
                     }
-                    upper -= val * gub[iu];
-                } else {
-                    if glb[iu] == -INF {
-                        ok = false;
-                        break;
-                    }
-                    upper -= val * glb[iu];
                 }
                 continue;
             }
@@ -1679,5 +1679,28 @@ pub mod ffi {
             }
             None => false,
         }
+    }
+}
+
+#[cfg(test)]
+mod proof_tests {
+    use super::*;
+
+    /// A proof 1e-6 x + 1e-10 y <= rhs, with y in [-30000, 30000]: dropping
+    /// the tiny y entry (HiGHS) gives a proof that cuts off a feasible point;
+    /// moving it to the right-hand side with its bound keeps it valid.
+    #[test]
+    fn tiny_entries_keep_the_proof_valid() {
+        let (a, b) = (1e-6, -1e-10);
+        // the valid inequality a x + b y <= rhs at the feasible point
+        // x = 10, y = 30000: rhs = a 10 + b 30000
+        let (x, y) = (10.0, 30000.0);
+        let rhs = a * x + b * y;
+        let dropped = rhs; // a x <= rhs: violated at x = 10
+        assert!(a * x > dropped + 1e-12);
+        let folded = rhs - proof_bound_term(b, -30000.0, 30000.0).unwrap();
+        assert!(a * x <= folded + 1e-15);
+        assert_eq!(proof_bound_term(-1.0, 0.0, INF), None);
+        assert_eq!(proof_bound_term(1.0, -INF, 0.0), None);
     }
 }
