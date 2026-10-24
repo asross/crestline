@@ -1409,7 +1409,9 @@ is checked again.
 - miplib-easy (runs 40084216316 / 40084218091): x64 solved 65 -> 66
   (tr12-30), sgm 25.3 -> 25.4 s; arm64 66 -> 66, 25.0 -> 24.2 s; no wrong
   result.
-- Full MIPLIB pair queued: runs 40100258558 / 40100260501.
+- Full MIPLIB (runs 40100258558 / 40100260501): x64 solved 92 -> 95, sgm
+  144.9 -> 143.0 s; arm64 93 -> 94, 145.2 -> 144.6 s; no wrong result.
+  Kept (default).
 
 The two other per-solve costs were looked at for a path-preserving cut,
 and neither has one:
