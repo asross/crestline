@@ -263,7 +263,7 @@ impl LpMode<'_> {
     /// handle's own run)
     pub fn new(orig: &CHighs, handle: *mut LpHandle) -> LpMode<'_> {
         // SAFETY: the run's handle
-        let lps: *mut LpSolver = unsafe { &mut *(*handle).lps };
+        let lps: *mut LpSolver = unsafe { &raw mut *(*handle).lps };
         let host = orig.ctx != handle as *mut c_void;
         LpMode { orig, handle, lps, host, aborted: Cell::new(false) }
     }
@@ -309,33 +309,37 @@ impl LpMode<'_> {
     /// through [`lp_op`]
     pub fn view(&self) -> CHighs {
         let o = self.orig;
-        let r = self.run();
         let mut ro = o.o;
-        if self.host {
-            // The options the LP part of the run changes and restores are
-            // the handle's copy, which the solvers read
-            // SAFETY: the run's handle
-            let opts = unsafe { &mut (*self.handle).opts };
-            ro.objective_bound = &mut opts.objective_bound;
-            ro.lp_presolve_requires_basis_postsolve = &mut opts.lp_presolve_requires_basis_postsolve;
-        }
-        CHighs {
-            log: o.log,
-            ctx: self as *const LpMode as *mut c_void,
-            op: lp_op,
-            clock: lp_clock,
-            model_status: &mut r.model_status,
-            presolve_status: o.presolve_status,
-            info: &mut r.info,
-            run_data: o.run_data,
-            value_valid: &mut r.solution.value_valid,
-            dual_valid: &mut r.solution.dual_valid,
-            basis_valid: &mut r.basis.b.valid,
-            basis_alien: &mut r.basis.b.alien,
-            basis_useful: &mut r.basis.b.useful,
-            basis_was_alien: &mut r.basis.b.was_alien,
-            called_return: o.called_return,
-            o: ro,
+        // SAFETY: field addresses of the run's handle and engine, taken from
+        // their raw pointers (references made later by the steps would
+        // invalidate pointers taken from references)
+        unsafe {
+            let r = &raw mut (*self.lps).run;
+            if self.host {
+                // The options the LP part of the run changes and restores
+                // are the handle's copy, which the solvers read
+                let opts = &raw mut (*self.handle).opts;
+                ro.objective_bound = &raw mut (*opts).objective_bound;
+                ro.lp_presolve_requires_basis_postsolve = &raw mut (*opts).lp_presolve_requires_basis_postsolve;
+            }
+            CHighs {
+                log: o.log,
+                ctx: self as *const LpMode as *mut c_void,
+                op: lp_op,
+                clock: lp_clock,
+                model_status: &raw mut (*r).model_status,
+                presolve_status: o.presolve_status,
+                info: &raw mut (*r).info,
+                run_data: o.run_data,
+                value_valid: &raw mut (*r).solution.value_valid,
+                dual_valid: &raw mut (*r).solution.dual_valid,
+                basis_valid: &raw mut (*r).basis.b.valid,
+                basis_alien: &raw mut (*r).basis.b.alien,
+                basis_useful: &raw mut (*r).basis.b.useful,
+                basis_was_alien: &raw mut (*r).basis.b.was_alien,
+                called_return: o.called_return,
+                o: ro,
+            }
         }
     }
 

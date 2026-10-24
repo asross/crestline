@@ -2930,6 +2930,7 @@ mod tests {
                 d.domchgstack.push(DomChg { boundval: i as f64, column: 0, boundtype: LOWER }, highs_rs_reserve_domchg);
             }
             highs_rs_domain_vecs_size_rows(v, 3);
+            let d = &mut *v;
             assert_eq!(d.activitymin.len(), 3);
             let c = highs_rs_domain_vecs_clone(v);
             assert_eq!((*c).domchgstack.len(), 100);
