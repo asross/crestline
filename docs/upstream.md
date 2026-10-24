@@ -24,8 +24,8 @@ we have no HiGHS run that ends with a wrong answer.
 With the debug solution (`-DDEBUGSOL=ON`, `mip_debug_solution_file` set
 to an optimum, and HiGHS's assertions in `HighsDebugSol.cpp` turned into
 prints so that a run keeps going after the first report), the dual
-infeasibility proofs of v1.15.1 are violated by the optimum on 6 of
-seeds 0-6 and 9 (1 to 21 times per run, up to 2.2e-2 absolute). All of
+infeasibility proofs of v1.15.1 are violated by the optimum on 6 of the 8
+seeds (0-6 and 9; 1 to 21 times per run, up to 2.2e-2 absolute). All of
 those proofs have very large right-hand sides (|rhs| 1e6 to 1e11), so the
 relative violations are about 1e-11 or smaller. With the fix below,
 seeds 5 and 9 still show such violations but smaller (at most 9.4e-6,
