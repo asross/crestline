@@ -1411,6 +1411,28 @@ is checked again.
   result.
 - Full MIPLIB pair queued: runs 40100258558 / 40100260501.
 
+The two other per-solve costs were looked at for a path-preserving cut,
+and neither has one:
+- The KKT pass after each LP run (lp_basic_infeasibilities, through
+  callLpKktCheck; 4.7% of LP time on hard_10-03) feeds info fields the
+  MIP acts on. After every optimal node LP, LpRelaxation::run classifies
+  the result by max_primal_infeasibility and max_dual_infeasibility.
+  perform_aging and the dual proofs test max_dual_infeasibility, and
+  compute_lp_degeneracy uses its exact value as a tolerance. The simplex's
+  own unscaled pass (get_unscaled_infeasibilities, 2.3%) computes these
+  with other formulas: primal infeasibility only beyond the tolerance,
+  and duals from the work arrays, so reusing it would change the values
+  and the paths. The loop is already one streaming pass with the
+  per-variable function inlined, so there is little to gain without
+  changing what it computes.
+- The primal and dual recompute in rebuilds (about 20%): the first
+  rebuild of a solve already reuses the values computed at its start
+  (fresh_primal and fresh_dual), and reports are skipped when the output
+  is off. The remaining recomputes replace values updated over many
+  iterations, and their rounding is what keeps the paths. Recomputing
+  only what changed would round differently, so it changes paths and
+  needs the full staging as a path-changing change.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
