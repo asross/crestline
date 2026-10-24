@@ -11,6 +11,29 @@ above the optimum. It reported 28350 with `random_seed = 9`, and 28380 and
 29090 on a nearby search path. It depends on the path: most seeds are
 right.
 
+**In HiGHS itself: not reproduced.** HiGHS v1.15.1, built from the
+tag on macOS arm64 (clang, Release, 1 thread), solves traininstance6
+correctly (28290) on seeds 0-11. So does a build that follows HiGHS's
+paths exactly (Crestline's oracle mode, which matches the C++ app's logs
+byte for byte), on the same 12 seeds. The wrong results came only from
+Crestline's own default paths, which differ from HiGHS's in the LP (the
+hyper-sparse solve order and pricing) and in a few heuristics. The faulty
+code is identical, so HiGHS can produce such a proof on another path, but
+we have no HiGHS run that ends with a wrong answer.
+
+With the debug solution (`-DDEBUGSOL=ON`, `mip_debug_solution_file` set
+to an optimum, and HiGHS's assertions in `HighsDebugSol.cpp` turned into
+prints so that a run keeps going after the first report), the dual
+infeasibility proofs of v1.15.1 are violated by the optimum on 6 of
+seeds 0-6 and 9 (1 to 21 times per run, up to 2.2e-2 absolute). All of
+those proofs have very large right-hand sides (|rhs| 1e6 to 1e11), so the
+relative violations are about 1e-11 or smaller. With the fix below,
+seeds 5 and 9 still show such violations but smaller (at most 9.4e-6,
+same |rhs| range). That looks like roundoff in badly scaled rays, not
+this bug, and it does not show the bug in HiGHS directly. (The first
+violated proof we found in Crestline had rhs 5.1e-5 and violation 1.1e-6:
+2% relative.)
+
 **Cause.** Both proofs are built as the aggregate `a = c - y^T A` (bound
 proofs) or `a = y^T A` (infeasibility proofs, from the dual ray), and then
 `sum_j a_j x_j <= rhs` is used as a valid inequality:
