@@ -1339,6 +1339,46 @@ Propagation (do_change_bound, propagate_row_cap) and separation
 (path.rs's per-column loads, transform) are the work itself, already
 tuned in earlier passes.
 
+## Factor solves by call site and kernel (2026-10-24)
+
+Main 3d10eed, one thread, 120 s, `mip_rel_gap = 0.01`, samply at 1 kHz,
+stacks expanded through inlining (share of all samples):
+
+| | hard_10-03 | diverse_10-01 | hard tick | dm_full_pert_s1_ramp | lambda 080458 |
+|---|---|---|---|---|---|
+| factor total | 25.0% | 42.3% | 42.3% | 54.3% | 45.0% |
+| DSE FTRAN | 6.2 | 11.3 | 13.7 | 17.9 | 7.8 |
+| column FTRAN | 4.2 | 10.5 | 10.0 | 8.0 | 10.8 |
+| row BTRAN | 2.5 | 7.3 | 5.7 | 18.8 | 14.7 |
+| compute_primal / compute_dual (rebuilds) | 7.5 | 5.9 | 5.4 | 1.9 | 0.8 |
+| BFRT FTRAN | 0.4 | 1.4 | 1.5 | 0.9 | 3.7 |
+| refactorization (build) | 1.3 | 2.0 | 2.8 | 5.0 | 5.9 |
+| update | 0.3 | 0.5 | 0.6 | 1.0 | 1.3 |
+| kernel: dense U (solve_u_sparse) | 9.3 | 15.2 | 13.9 | 15.6 | 10.2 |
+| kernel: bitmap sparse solves | 5.2 | 10.8 | 11.2 | 10.2 | 12.9 |
+| kernel: FT row etas (ftran_ft, btran_ft) | 4.6 | 7.6 | 8.5 | 5.1 | 4.3 |
+| kernel: dense L (ftran_l, btran_l) | 3.3 | 5.1 | 4.1 | 16.2 | 9.6 |
+| kernel: HVec clear/tight/pack/re_index | 0.9 | 1.0 | 1.1 | 1.2 | 0.7 |
+
+The hottest lines are the dense U loop's load of the pivot entry, its
+division by the pivot and its store of zero to an entry below the
+tolerance (each 2-4%), axpy_unchecked's scatter, and the FT row etas'
+gather (a chain of fused multiply-adds whose order is fixed). The bounds
+checks, clearing and copying are gone already (the port made the sparse
+solves unchecked); what is left is memory and latency bound with a fixed
+arithmetic order. The dense-or-bitmap choice is the root LP work's
+(crestline-rootlp), not touched here.
+
+Tried, not kept:
+- Not storing the zero when the entry is already +0.0 (dense L and U
+  loops): same paths, 1.003-1.009x the instructions and 0.994-1.024x the
+  cycles on six models (the branch costs more than the store).
+- Multiplying by a cached reciprocal of the U pivots instead of dividing
+  (changes the last bit, so the paths): root LPs alone (dm_full_pert_s1_ramp,
+  diverse_10-01, the hard tick) took 9-14% more simplex iterations
+  (23713 -> 26956, 20012 -> 21553, 19720 -> 22511) and 21-34% more cycles;
+  the division is not the cost it looks.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
