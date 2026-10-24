@@ -1433,6 +1433,72 @@ means of ratios against the default: iterations, root LP time):
 
 Nothing kept.
 
+## Dual edge weights between the MIP's LP solves (2026-10-24)
+
+How DSE weights survive re-solves (simplex/dual.rs, hekk.rs
+restore_dual_edge_weights; the MIP's LP relaxation sets
+`simplex_dse_exact_init_max_rows` = 20000): the weights stay while the
+simplex keeps its basis (node to node, LNS re-solves, after cut additions:
+new rows come in with basic logicals and the existing weights unchanged;
+after cut deletions the weights of the remaining rows are kept). They are
+lost when the basis is set from outside (a stored node basis, a restart,
+dualization): then, above 20000 rows, the saved weights of the variables
+still basic are restored (missing ones computed by a BTRAN each) or unit
+weights used; at or below 20000 rows they are recomputed exactly, one
+BTRAN per row. A near-optimal start uses Devex instead of computing all
+weights. Graph LNS re-solves the main LP (no sub-MIP), so its LPs keep
+their weights.
+
+Share of the time in the exact recomputation (samply, 1 thread):
+
+| model | rows | exact DSE init | DSE FTRAN per iteration |
+|---|---|---|---|
+| hard_10-03, diverse_10-01, hard tick, dm_full_pert_s1_ramp, lambda 080458 | > 20000 | 0% (restore: <0.1%) | 6.8-19% |
+| dm_medium_randsoc_noramp | 15.6k | 1.1% | 10.1% |
+| dm_small_pert_s1_ramp | 5.4k | 4.5% | 17.8% |
+| neos-911970 / pk1 / air05 | small | 4.6% / 5.6% / 1.7% | 4.8% / 2.8% / 2.4% |
+
+Experiments (paths change):
+- (a) Devex for sub-MIP LPs, node LPs or both (`simplex_dual_edge_weight_strategy`
+  on those LP solves only): no change on the dispatch models (they solve at
+  the root; graph LNS uses the main LP); neos-911970 1.12 / 1.16 / 1.01x the
+  instructions. (Devex for the LNS LPs was rejected earlier: twice the
+  instructions on the hardest tick.)
+- (b) weights kept at every size (`simplex_dse_exact_init_max_rows` = 0 in
+  the MIP; branch dse, 25ee6cc). Locally, instructions to finish, 1 thread:
+  dm_medium_randsoc 0.77, dm_small_pert_s1_ramp 0.73, dm_small_windlull
+  0.65, dm_medium_pert_s1_ramp 1.01, neos-911970 1.09, pk1 0.91, air05
+  0.93, neos17 1.06, nu25-pr12 0.64, mzzv11 0.96 (geometric mean 0.86).
+  Dispatch screen (run 40081473738, 1 thread): time 0.970 (arm64), 0.965
+  (x64); medium and small models 0.88-0.93, the large ones 0.994-1.005, no
+  loss. miplib-easy (runs 40081476692 main / 40081477922): arm64 solved
+  66 -> 66, shifted time 0.952 [0.884, 1.025], sgm 24.6 -> 22.9 s; x64
+  65 -> 66, 1.014 [0.939, 1.094], 23.5 -> 23.7 s; on both arches much
+  slower ns1208400 (2.4-2.8x), swath3, seymour1, dano3_3 (1.6-2.3x) and
+  much faster neos-3083819-nubu, decomp2 (8-9x), n2seq36q, neos-1582420
+  (2x).
+
+  Full runs (branch dse, main run at the same time). Dispatch, 25 models,
+  16 seeds, 180 s: one thread (run 40083950258) 1.001 (arm64), 0.997
+  (x64), solved 373 -> 372 and 371 -> 371; two threads (40083952331) 0.985
+  and 0.978, 380 -> 380 and 379 -> 381. The screen's medium and small
+  models gain on one thread (dm_medium_randsoc 0.91, dm_small_windlull
+  0.89-0.91, dm_medium_pert_s1_noramp 0.93), but others lose:
+  dm_full_coarse24_noramp 1.13-1.14, dm_medium_pert_s1_ramp 1.11,
+  dm_small_prices_noramp 1.09-1.11 (two threads 1.12-1.28). Full MIPLIB
+  (40083954298 main / 40083955499): arm64 solved 94 -> 91, sgm 144.9 ->
+  145.9 s; x64 90 -> 90, 143.9 -> 146.2 s; no wrong result. Fails the
+  merge criteria (dispatch <= 0.98 on both arches with no tick above 1.03;
+  MIPLIB within -2 solved and sgm <= 1.01): not merged, nothing kept.
+
+  Why ns1208400 and swath3 lost in miplib-easy (local, 1 thread, seed 0):
+  not stale weights costing iterations per solve, but another search
+  path. Iterations per node in the tree are the same or lower with kept
+  weights (ns1208400 169 -> 145, swath3 21.5 -> 20.7), while nodes grow
+  (357 -> 1023, 7829 -> 21439) and strong branching with them. Over seeds
+  1 and 2 it goes both ways: ns1208400 20.6 -> 33.6 s and 28.3 -> 17.9 s,
+  swath3 69.2 -> 59.6 s and 55.2 -> 69.0 s.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
