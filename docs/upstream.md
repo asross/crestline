@@ -55,14 +55,21 @@ combination of the rows. Only dropping a column term without its bound is
 not.)
 
 **Cost.** Measured in Crestline (a Rust port of HiGHS's MIP solver) on
-MIPLIB 2017 "benchmark", 240 instances, 300 s, 1 thread:
+MIPLIB 2017 "benchmark" (240 instances, 300 s, 1 thread, shared CI
+runners on x64 and arm64), the fix costs about one or two solved
+instances and about 1% in shifted geometric mean time. One pair of runs
+showed more:
 
 | Arch | Solved | Shifted geometric mean |
 |---|---|---|
 | x64 | 95 -> 90 | 140.6 -> 143.4 s |
 | arm64 | 94 -> 92 | 144.2 -> 145.5 s |
 
-No wrong results with the fix. With the fix, traininstance6 gives 28290
-on every seed we tried. The extra time is the price of valid proofs: the
-old ones were stronger only because they were invalid.
+But a repeat run that takes the same search paths as the fixed build
+solved 93 on x64 and 93 on arm64. On these runners the solved count
+varies by about ±3 from run to run.
+
+No run gave a wrong result with the fix. With the fix, traininstance6
+gives 28290 on every seed we tried. The extra time is the price of valid
+proofs: the old ones were stronger only because they were invalid.
 
