@@ -72,7 +72,10 @@ impl Task {
         debug_assert_eq!(d[0], RUST_TASK);
         // SAFETY: a Rust task (spawn_on): its runner and closure
         unsafe {
-            let f: unsafe fn(*const u64) = std::mem::transmute::<usize, unsafe fn(*const u64)>(d[1] as usize);
+            // the address was exposed when stored (as usize): take its
+            // provenance back before making it a function pointer
+            let p: *const () = std::ptr::with_exposed_provenance(d[1] as usize);
+            let f: unsafe fn(*const u64) = std::mem::transmute::<*const (), unsafe fn(*const u64)>(p);
             f(d.as_ptr().add(2));
         }
         false
@@ -413,15 +416,17 @@ impl Deque {
 
     #[inline(always)]
     fn bunk(&self) -> &WorkerBunk {
-        // SAFETY: the executor's bunk outlives its deques
-        unsafe { &*self.o().worker_bunk }
+        // SAFETY: the executor's bunk outlives its deques; the field is read
+        // through the cell's pointer, not a second &mut OwnerData (callers
+        // hold one from o())
+        unsafe { &*(*self.owner.0.get()).worker_bunk }
     }
 
     #[inline(always)]
     fn worker(&self, id: i32) -> &Deque {
         // SAFETY: the executor's deques (a vector that is not resized)
         // outlive each other's uses
-        unsafe { &**self.o().workers.add(id as usize) }
+        unsafe { &**(*self.owner.0.get()).workers.add(id as usize) }
     }
 
     #[inline(always)]
@@ -803,7 +808,9 @@ impl Deque {
 /// HighsTaskExecutor: the deques and the worker threads
 pub struct Executor {
     has_stopped: AtomicBool,
-    worker_bunk: Box<WorkerBunk>,
+    /// (an Arc, not a Box: the deques point into it, and moving a Box
+    /// asserts unique access)
+    worker_bunk: Arc<WorkerBunk>,
     worker_deques: Vec<Box<Deque>>,
     worker_threads: Mutex<Vec<JoinHandle<()>>>,
 }
@@ -840,7 +847,7 @@ thread_local! {
 impl Executor {
     fn new(num_threads: i32) -> Arc<Executor> {
         debug_assert!(num_threads > 0);
-        let worker_bunk = Box::new(WorkerBunk { have_jobs: Padded(AtomicI32::new(0)), sleeper_stack: Padded(AtomicU64::new(0)) });
+        let worker_bunk = Arc::new(WorkerBunk { have_jobs: Padded(AtomicI32::new(0)), sleeper_stack: Padded(AtomicU64::new(0)) });
         let mut worker_deques: Vec<Box<Deque>> = Vec::with_capacity(num_threads as usize);
         let workers_ptr = worker_deques.as_ptr();
         for i in 0..num_threads {

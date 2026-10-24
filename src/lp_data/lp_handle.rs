@@ -581,26 +581,31 @@ impl LpHandle {
 
     fn chighs(&mut self) -> CHighs {
         let log = self.log();
-        let ctx = self as *mut LpHandle as *mut c_void;
-        let o = self.opts.r_options();
-        let r = &mut self.lps.run;
-        CHighs {
-            log,
-            ctx,
-            op: handle_op,
-            clock: handle_clock,
-            model_status: &mut r.model_status,
-            presolve_status: &mut self.presolve_status,
-            info: &mut r.info,
-            run_data: &mut self.run_data,
-            value_valid: &mut r.solution.value_valid,
-            dual_valid: &mut r.solution.dual_valid,
-            basis_valid: &mut r.basis.b.valid,
-            basis_alien: &mut r.basis.b.alien,
-            basis_useful: &mut r.basis.b.useful,
-            basis_was_alien: &mut r.basis.b.was_alien,
-            called_return: &mut self.called_return,
-            o,
+        // every pointer derived from the one the run's calls back use
+        // (fields borrowed after it would invalidate it for those fields)
+        let h: *mut LpHandle = self;
+        // SAFETY: field addresses of the live handle, no reference made
+        unsafe {
+            let o = Opts::r_options(&raw mut (*h).opts);
+            let r = &raw mut (*h).lps.run;
+            CHighs {
+                log,
+                ctx: h as *mut c_void,
+                op: handle_op,
+                clock: handle_clock,
+                model_status: &raw mut (*r).model_status,
+                presolve_status: &raw mut (*h).presolve_status,
+                info: &raw mut (*r).info,
+                run_data: &raw mut (*h).run_data,
+                value_valid: &raw mut (*r).solution.value_valid,
+                dual_valid: &raw mut (*r).solution.dual_valid,
+                basis_valid: &raw mut (*r).basis.b.valid,
+                basis_alien: &raw mut (*r).basis.b.alien,
+                basis_useful: &raw mut (*r).basis.b.useful,
+                basis_was_alien: &raw mut (*r).basis.b.was_alien,
+                called_return: &raw mut (*h).called_return,
+                o,
+            }
         }
     }
 

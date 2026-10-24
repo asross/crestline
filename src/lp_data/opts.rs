@@ -113,8 +113,8 @@ macro_rules! opt_assign {
 
 /// The field's address (a string's Vec<u8>) and its string value
 macro_rules! opt_ptr {
-    (string, $f:expr) => { (&mut $f as *mut Vec<u8> as *mut std::ffi::c_void, Some(RsStr::of(&$f))) };
-    ($kind:ident, $f:expr) => { (&mut $f as *mut _ as *mut std::ffi::c_void, None) };
+    (string, $f:expr) => { (&raw mut $f as *mut std::ffi::c_void, Some(RsStr::of(&$f))) };
+    ($kind:ident, $f:expr) => { (&raw mut $f as *mut std::ffi::c_void, None) };
 }
 
 /// The field into the C++ record's value (a string through `set_string`
@@ -194,11 +194,16 @@ macro_rules! options {
             }
 
             /// Field `i`'s address and, for a string, its value
-            fn field_ptr(&mut self, i: usize) -> (*mut std::ffi::c_void, Option<RsStr>) {
+            /// (from a raw pointer: the addresses of earlier calls stay
+            /// valid, as a `&mut self` would retag the whole store)
+            ///
+            /// # Safety
+            /// `p` a live store
+            unsafe fn field_ptr(p: *mut Self, i: usize) -> (*mut std::ffi::c_void, Option<RsStr>) {
                 let mut k = 0usize;
                 $(
                     if k == i {
-                        return opt_ptr!($kind, self.$name);
+                        return opt_ptr!($kind, (*p).$name);
                     }
                     k += 1;
                 )*
@@ -288,6 +293,7 @@ impl Opts {
     /// The records' strings are valid; the table is valid while these
     /// options are not moved
     pub unsafe fn records_on(&mut self, cpp: &[COptionRecord]) -> Vec<COptionRecord> {
+        let this: *mut Self = self;
         cpp.iter()
             .enumerate()
             .map(|(i, r)| {
@@ -297,7 +303,7 @@ impl Opts {
                 } else {
                     Self::index(name).expect("an option of the C++ records")
                 };
-                let (value, s) = self.field_ptr(j);
+                let (value, s) = Self::field_ptr(this, j);
                 let mut v = std::ptr::read(r);
                 v.value = value;
                 if let Some(s) = s {
@@ -480,27 +486,32 @@ impl Opts {
     }
 
     /// The run's option view, its pointers into this copy (valid while it
-    /// is not moved)
-    pub fn r_options(&mut self) -> ROptions {
+    /// is not moved), all from `p` (as the handle's other pointers for the
+    /// run: a reference would be invalidated by the run's calls back)
+    ///
+    /// # Safety
+    /// `p` a live store, its strings not changed while the view is used
+    pub unsafe fn r_options(p: *mut Self) -> ROptions {
+        let o = &*p;
         ROptions {
-            solver: RsStr::of(&self.solver),
-            run_crossover: RsStr::of(&self.run_crossover),
-            presolve: RsStr::of(&self.presolve),
-            use_warm_start: self.use_warm_start,
-            icrash: self.icrash,
-            solve_relaxation: self.solve_relaxation,
-            allow_unbounded_or_infeasible: self.allow_unbounded_or_infeasible,
-            timeless_log: self.timeless_log,
-            large_matrix_value: self.large_matrix_value,
-            time_limit: self.time_limit,
-            primal_feasibility_tolerance: self.primal_feasibility_tolerance,
-            mip_feasibility_tolerance: self.mip_feasibility_tolerance,
-            highs_debug_level: &mut self.highs_debug_level,
-            objective_bound: &mut self.objective_bound,
-            lp_presolve_requires_basis_postsolve: &mut self.lp_presolve_requires_basis_postsolve,
-            output_flag: &self.output_flag,
-            log_dev_level: &self.log_dev_level,
-            simplex_strategy: self.simplex_strategy,
+            solver: RsStr::of(&o.solver),
+            run_crossover: RsStr::of(&o.run_crossover),
+            presolve: RsStr::of(&o.presolve),
+            use_warm_start: o.use_warm_start,
+            icrash: o.icrash,
+            solve_relaxation: o.solve_relaxation,
+            allow_unbounded_or_infeasible: o.allow_unbounded_or_infeasible,
+            timeless_log: o.timeless_log,
+            large_matrix_value: o.large_matrix_value,
+            time_limit: o.time_limit,
+            primal_feasibility_tolerance: o.primal_feasibility_tolerance,
+            mip_feasibility_tolerance: o.mip_feasibility_tolerance,
+            highs_debug_level: &raw mut (*p).highs_debug_level,
+            objective_bound: &raw mut (*p).objective_bound,
+            lp_presolve_requires_basis_postsolve: &raw mut (*p).lp_presolve_requires_basis_postsolve,
+            output_flag: &raw const (*p).output_flag,
+            log_dev_level: &raw const (*p).log_dev_level,
+            simplex_strategy: o.simplex_strategy,
         }
     }
 }
