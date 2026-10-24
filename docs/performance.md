@@ -1236,7 +1236,7 @@ clocks run at similar rates in time. Also a candidate for the default
 path: counting the race's effort deterministically (the second row) keeps
 the race's speed and removes the iteration-count nondeterminism.
 
-## Wrong optimum on traininstance6: dual proofs dropped tiny coefficients (2026-10-23)
+## Wrong optimum on traininstance6: dual proofs dropped tiny coefficients (2026-10-24)
 
 Found by the Gomory-history experiment above, then on main itself:
 traininstance6 (MIPLIB 2017, optimum 28290) ended "optimal" at 28380
@@ -1281,63 +1281,34 @@ gained fast0507, neos-787933, wachplan); arm64 94 -> 92, 144.2 -> 145.5 s
 result either way. A cost of about 1-2% in sgm, taken for a correct
 proof: the old proofs were stronger only because they were invalid.
 
-Trying to win the time back (2026-10-24). A count of the tiny entries on
-the losing instances (40 s each) showed the folded bound terms are
-negligible on most of them (sct2, csched008 and n2seq36q: sums below
-1e-5 over all proofs). They are large only where a tiny entry sits on a
-column with a large bound (mas76: 50 terms above 1e-7; gmu-35-40: 319;
-neos-4738912-atrato: 1777). sct2 also loses 3705 bound proofs to an
-infinite bound. Tried (commit 22254f4, branch proof-keep): a tiny entry whose
-bound term is above epsilon stays in the proof as a coefficient, so that
-conflict analysis can use its local bound; it is moved to the right-hand
-side only when the term is negligible. Still valid: traininstance6 gives
-28290 on seeds 1, 3 and 9.
-- Local runs (300 s, against main): gmu-35-40 300 -> 254 s, mas76
-  110 -> 76 s, the others unchanged.
-- Dispatch screen (run 40059374527): time 0.998 (arm64), 0.999 (x64).
-- miplib-easy (runs 40059376375 / 40059378359): x64 solved 65 -> 66, sgm
-  24.0 -> 23.0 s; arm64 66 -> 66, 24.8 -> 24.4 s.
-- Full MIPLIB against main (runs 40061091105 / 40061092772): x64 solved
-  93 -> 91, sgm 143.0 -> 142.5 s; arm64 93 -> 95, 145.2 -> 145.1 s; no
-  wrong result.
+## Root LP profile after PR #9; bitmap solves for denser results: rejected (2026-10-24)
 
-Rejected: no gain over the full set. The full runs also put a number on
-the runner noise. main at 758621e should take the same paths as the fix
-run above (39990349399), yet it solved 93 rather than 90 on x64 and 93
-rather than 92 on arm64, and several instances changed time by 1.5-2x with
-the same node count. So the fix's real cost is about one or two instances
-and about 1% sgm, not the 5 the first pair showed.
+Profile of the root LPs on main (macOS `sample`, self time inside the
+simplex solve, each instance weighted 1): 18 dispatch roots: dense FTRAN
+(`HFactor::ftran`, the U solve inlined) 23%, bitmap sparse solves 22%,
+factorization 10%, `Dual::iterate` 8%, row PRICE 6%, FTRAN L 4%; 26
+MIPLIB benchmark roots: dense FTRAN 20%, row PRICE 14%, `Dual::iterate`
+12%, factorization 8%, column PRICE 7%, sparse solves 5%, FTRAN L 5%. DSE
+weight updates are under 1.5%.
 
-## Where the time goes outside the simplex (2026-10-24)
+**Tried: bitmap solves up to k times HiGHS's hyper-sparse thresholds.**
+The bitmap solve gives the dense solve's results bit for bit, so it can
+take solves that HiGHS's rule makes dense; adding the dense solve's
+synthetic tick keeps the refactorization points, so every path is the
+same (logs identical on check/instances and 72 MIP models at 50 nodes).
+Root LP instructions on the M1, against main:
 
-Main 778c9db, one thread, `mip_rel_gap = 0.01`, 120 s, M1, macOS
-`sample` at 1 ms (self time by function, grouped by module; inlined code
-counts where it was inlined):
-
-| share of samples | hard_10-03 | diverse_10-01 | hard tick (142050) | dm_full_pert_s1_ramp | lambda 080458 |
+| k | 1.5 | 2 | 3 | 5 | unlimited |
 |---|---|---|---|---|---|
-| simplex: factor solves and updates | 34.4% | 49.1% | 47.2% | 60.3% | 57.7% |
-| simplex: iterations (pricing, CHUZR, updates) | 26.5% | 28.5% | 24.2% | 30.9% | 39.6% |
-| propagation (domain, objective, conflicts) | 17.8% | 3.8% | 1.2% | 0.2% | 0 |
-| simplex solve setup/teardown (KKT check, unscaled infeasibilities, basis and solution copies, LP import) | 9.5% | 6.3% | 6.7% | 2.3% | 0.2% |
-| cut separation (transform, path, cMIR) | 5.6% | 6.6% | 13.9% | 0.8% | 0 |
-| memmove/memset (LP import, domain copies, put/get iterate) | 4.1% | 3.2% | 3.6% | 2.7% | 1.6% |
-| LP relaxation glue, heuristics, graph LNS bookkeeping, cut pool, conflict pool, node queue, clique table, symmetry, presolve | < 1.5% together | < 1% | < 1.5% | < 1% | < 0.3% |
+| dispatch (19) | 0.972 | 0.960 | 0.954 | 0.957 | 0.984 |
+| MIPLIB (25) | 0.993 | 0.990 | 0.986 | 0.987 | 1.030 (qap10 1.22) |
 
-Graph LNS includes 72% of hard_10-03's samples (its sub-LP solves and the
-propagation of its neighbourhoods). The pure overhead outside the simplex
-is spread thin: per LP solve the KKT check (2-3%), the unscaled
-infeasibilities (1-1.5%), the basis and solution copies (1.2-1.6%) and the
-incumbent LP's copy into the simplex (Lp::import, 0.8%), each an O(rows +
-columns) pass that a short graph-LNS re-solve pays in full. Tried: not
-zero-filling the solution and basis vectors before they are overwritten
-(same paths, 0.9990-0.9999 of the instructions on six models: within
-noise, not kept). Not done (path-preserving but each about 1%): skipping
-Lp::import of an unchanged matrix (needs a model version kept by every
-edit), fusing the four post-solve passes (they sit in three layers).
-Propagation (do_change_bound, propagate_row_cap) and separation
-(path.rs's per-column loads, transform) are the work itself, already
-tuned in earlier passes.
+(neos-5052403-cygnet's root LP: 953 s -> 440 s on the M1.) But the
+runner screen at k = 3 (same paths, so time only) shows no gain: dispatch
+screen 0.996 (arm64) and 1.015 (x86_64; the ramp models 1.02-1.03
+slower), bench-std miplib-easy 0.998 and 1.015. On x86_64 the dense loops
+over moderately dense vectors beat the bitmap's word scan and gathers, and
+on arm64 the instruction saving does not show in time. Not kept.
 
 ## Other platforms
 
