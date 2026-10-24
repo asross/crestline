@@ -1146,6 +1146,69 @@ bounds): on MIPLIB the network rule added such columns on 10 of 72
 presolved models (neos-2978193-inde, binkar10_1, markshare2/4_0,
 neos-911970, ns1208400 among them; none on the dispatch models).
 
+## Deterministic two-thread runs: `mip_deterministic` (off by default; 2026-10-23)
+
+On two threads (with `mip_rel_gap` >= 1e-3) the main solver runs a
+concurrent LNS helper, and a run's path depended on the timing in three
+ways: the root LP race (IPX against the dual simplex: on
+`diverse_10-01`, `dm_medium_pert_s1_ramp` and the `wind185` tick the two
+finish close together, and 1 of 3 local runs flipped), the race's
+interrupted dual simplex iterations (added to the LP iteration count that
+sets the LNS budgets), and the exchange of incumbents, bounds, root cuts
+and the crossover partner between the two whenever they arrived. (One
+thread is deterministic: the run-to-run log differences there are only the
+node log's wall-clock throttling, `mip_min_logging_interval`; same paths
+with `timeless_log = true` or `CRESTLINE_INSTR_CLOCK`.)
+
+`mip_deterministic = true` (concurrent.rs `Det`): no root race (the dual
+simplex alone), and the exchange on a work clock. Each side counts the LP
+iterations of its thread's LP solves (sub-MIPs included, as they happen),
+publishes its state at its sync points stamped with that count, and takes
+the other's latest state of at most half its own count, waiting until the
+other's clock is beyond it (never past the time limit: a time-limited run
+still stops at a timing-dependent point). The two ratios must multiply to
+less than 1, or both sides can wait for ever (1 and 2 hung). Off, the
+paths are main's (quick_check; 2-thread dispatch runs on the instruction
+clock give main's outcomes). CI runs neos-911970 three times on two
+threads with it and compares node and LP iteration counts.
+
+**Cost** (screen: 10 models, 8 seeds, 120 s, two threads, against main;
+geometric mean of the time ratios of runs both solve):
+
+| variant | arm64 | x64 | slowest |
+|---|---|---|---|
+| no race, work-clock exchange (= `mip_deterministic`) | 1.47 | 1.38 | small_pert_s1_ramp 1.73-1.75, lambda 080458 1.67, hard tick 1.63-1.67, medium_randsoc 1.46-1.48; hard_10-03 gap +0.08-0.10 |
+| race kept, work-clock exchange, race effort counted as IPX's basic structural columns (not deterministic on close races) | 1.15 | 1.22 | hard tick 1.69-1.71, small_pert_s1_ramp 1.64-1.66, medium_randsoc 1.47-1.49 |
+| race kept, race effort not counted | 1.63 | 1.71 | the ramp models 2.2-2.6 (smaller LNS budgets) |
+| IPX's basis whenever it solves (deterministic race) | 1.88 | 1.96 | medium_pert_s1_ramp 3.4 |
+
+Solved: 67 -> 67 (both arches) for the first row. Runs 39970299772 and
+39985883614.
+
+**A layout-sensitive crash found on the way.** With the deterministic
+check inlined into import_root_cuts, the stable LTO build (rustc 1.98.1
+and 1.99.1, arm64) crashed in the helper's evaluate_root_node (the
+register holding the C++ function table pointer clobbered after the
+separation round's calls) even with the option off; the same source
+built without LTO, with nightly, with AddressSanitizer or with debug
+assertions ran clean, and main does not crash. Moving the check into a
+non-inlined function (root_cuts_taken) avoids it. A latent miscompile or
+undefined behaviour in evaluate_root_node (e.g. the LP borrowed across
+FFI calls that change it) is a candidate; not found yet.
+
+**Why it costs: a stale clock in root separation.** The main solver's
+clock barely moves during root separation (few LP iterations per round,
+the time is in the separators), while the helper's runs ahead in graph
+LNS. Taking the helper's state at half the main solver's count then means
+the helper's state from seconds before: on the hard tick the helper's
+solutions reached the main solver 3-5 s late, though it waited only 0.1 s.
+Other ratios (main 0.5-4, helper 0.2-0.9) and weighting iterations by LP
+rows did not help locally. To revisit: a clock that also counts the work
+outside LP solves (separation rounds, propagation, nodes), so the two
+clocks run at similar rates in time. Also a candidate for the default
+path: counting the race's effort deterministically (the second row) keeps
+the race's speed and removes the iteration-count nondeterminism.
+
 ## Wrong optimum on traininstance6: dual proofs dropped tiny coefficients (2026-10-23)
 
 Found by the Gomory-history experiment above, then on main itself:

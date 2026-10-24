@@ -13,6 +13,18 @@ jobs:
       - run: cargo test --release
       - run: python3 bench/std.py selftest
       - run: cargo build --release --bin crest
+      # mip_deterministic: three two-thread runs take the same path
+      - name: Deterministic two-thread runs
+        run: |
+          curl -fL --retry 3 -o neos-911970.mps.gz https://miplib.zib.de/WebData/instances/neos-911970.mps.gz
+          printf "threads = 2\nmip_rel_gap = 0.01\nmip_max_nodes = 3000\nmip_deterministic = true\n" > det.opts
+          for i in 1 2 3; do
+            target/release/crest --options_file det.opts neos-911970.mps.gz > det$i.log 2>&1 || true
+            grep -q "helper thread started" det$i.log || { tail -40 det$i.log; echo "no helper"; exit 1; }
+            grep -E "^  (Nodes|LP iterations|Primal bound)" det$i.log > det$i.txt || true
+            cat det$i.txt
+          done
+          [ -s det1.txt ] && cmp det1.txt det2.txt && cmp det1.txt det3.txt
 
   # crest against the C++ highs app of a pinned HiGHS commit (gcc, no FMA
   # contraction): outputs must match (bench/quick_check.sh)

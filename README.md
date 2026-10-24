@@ -47,6 +47,11 @@ The command line, options and output are those of HiGHS's `highs` app:
     printf 'mip_rel_gap = 0.01\n' > opts.txt
     crest --options_file opts.txt model.mps
 
+A MIP solve on two threads (with `mip_rel_gap` at least 0.1%) runs a
+concurrent LNS helper, so runs differ with the timing; `mip_deterministic
+= true` makes them reproducible, at some cost in speed
+([docs/performance.md](./docs/performance.md)).
+
 Model files: free-format MPS and CPLEX LP, optionally gzip-compressed. The
 library (crate `crestline`) can also be used from Rust.
 

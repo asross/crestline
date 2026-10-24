@@ -1700,4 +1700,14 @@ pub const RECORDS: &[Meta] = &[
         dbl: (0.0, 100.0, f64::INFINITY),
         str_default: "",
     },
+    Meta {
+        type_: BOOL,
+        advanced: false,
+        name: "mip_deterministic",
+        description: "Whether a MIP solve with a concurrent LNS helper (two threads) takes the same path in every run: the root LP by the dual simplex alone (no IPX race), and the two exchange solutions, bounds and cuts at fixed amounts of work (slower)",
+        bool_default: false,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
 ];
