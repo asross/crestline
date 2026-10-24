@@ -1184,6 +1184,17 @@ geometric mean of the time ratios of runs both solve):
 Solved: 67 -> 67 (both arches) for the first row. Runs 39970299772 and
 39985883614.
 
+**A layout-sensitive crash found on the way.** With the deterministic
+check inlined into import_root_cuts, the stable LTO build (rustc 1.98.1
+and 1.99.1, arm64) crashed in the helper's evaluate_root_node (the
+register holding the C++ function table pointer clobbered after the
+separation round's calls) even with the option off; the same source
+built without LTO, with nightly, with AddressSanitizer or with debug
+assertions ran clean, and main does not crash. Moving the check into a
+non-inlined function (root_cuts_taken) avoids it. A latent miscompile or
+undefined behaviour in evaluate_root_node (e.g. the LP borrowed across
+FFI calls that change it) is a candidate; not found yet.
+
 **Why it costs: a stale clock in root separation.** The main solver's
 clock barely moves during root separation (few LP iterations per round,
 the time is in the separators), while the helper's runs ahead in graph

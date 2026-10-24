@@ -197,7 +197,7 @@ impl Det {
 pub struct Pool {
     /// mip_deterministic's exchange (then the fields above root_cuts are
     /// unused)
-    det: Option<Det>,
+    det: Option<Box<Det>>,
     best: Mutex<Best>,
     version: AtomicI64,
     stop: AtomicBool,
@@ -285,8 +285,10 @@ pub struct Main {
 impl Drop for Main {
     /// stopConcurrentLns
     fn drop(&mut self) {
+        // on the main solver's thread, whose clock points into the pool
         if let Some(d) = &self.pool.det {
             d.done(0);
+            d.attach(None);
         }
         self.pool.stop.store(true, SeqCst);
         if let Some(t) = self.thread.take() {
@@ -347,6 +349,7 @@ impl MipData {
     }
 
     /// startConcurrentLns
+    #[inline(never)]
     pub fn start_concurrent_lns(&self) {
         if self.own_lns().is_some()
             || self.op(rop::USE_CONCURRENT_HELPER, None, 0, 0.0) == 0.0
@@ -358,7 +361,8 @@ impl MipData {
         if time_left < 1.0 {
             return;
         }
-        let det = self.opts.mip_deterministic.then(|| Det::new(crate::util::clock::now() + time_left));
+        // boxed: this thread's clock points into it
+        let det = self.opts.mip_deterministic.then(|| Box::new(Det::new(crate::util::clock::now() + time_left)));
         if let Some(d) = &det {
             d.attach(Some(0));
         }
@@ -419,7 +423,6 @@ impl MipData {
             // SAFETY: from Box::into_raw in start_concurrent_lns
             let main = unsafe { Box::from_raw(p) };
             if let Some(d) = &main.pool.det {
-                d.attach(None);
                 let (m, h) = (d.local[0].lock().unwrap().waited, d.local[1].lock().unwrap().waited);
                 crate::log_dev!(self.log, LogType::Info, "Deterministic exchange: main waited %.2fs, helper %.2fs\n", m, h);
             }
@@ -428,6 +431,7 @@ impl MipData {
     }
 
     /// This side's state for the other (deterministic exchange)
+    #[inline(never)]
     fn snap(&self, pool: &Pool, d: &Det, who: usize) -> Snap {
         let sc = self.sc();
         let l = d.local[who].lock().unwrap();
@@ -445,6 +449,7 @@ impl MipData {
 
     /// syncConcurrentLns of the deterministic exchange: publish this side's
     /// state, take the other's
+    #[inline(never)]
     fn sync_det(&self, pool: &Pool, d: &Det, helper: bool) {
         let who = helper as usize;
         let snap = self.snap(pool, d, who);
@@ -637,6 +642,7 @@ impl MipData {
     }
 
     /// crossoverWithMain of the deterministic exchange
+    #[inline(never)]
     fn crossover_det(&self, pool: &Pool, d: &Det, w: &Worker) {
         if !pool.independent() {
             return;
@@ -679,7 +685,7 @@ impl MipData {
             return false;
         }
         // deterministic: once a state of the helper taken says they are there
-        if pool.det.as_ref().is_some_and(|d| !d.local[0].lock().unwrap().root_cuts) {
+        if !root_cuts_taken(pool) {
             return false;
         }
         let Some(cuts) = pool.root_cuts.get() else { return false };
@@ -699,6 +705,14 @@ impl MipData {
         }
         false
     }
+}
+
+/// The root cuts may be imported: always, unless deterministic, where a
+/// state of the helper taken must say they are there (not inlined: see
+/// docs/performance.md, mip_deterministic)
+#[inline(never)]
+fn root_cuts_taken(pool: &Pool) -> bool {
+    pool.det.as_ref().is_none_or(|d| d.local[0].lock().unwrap().root_cuts)
 }
 
 /// std::min / std::max
