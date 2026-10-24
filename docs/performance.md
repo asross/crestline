@@ -1139,6 +1139,8 @@ on at the same commit).
 | network implied integers in presolve (+-1 continuous columns, at most two per column, rows signed by union-find; arXiv:2504.07209) | 1.002 without neos-2978193-inde (93 -> 14 s with: all 20736 continuous columns become implied integer); 23 -> 23 | bench-std runs 39078267364 / 39078268540: x64 solved 90 -> 89, sgm 144.3 -> 146.4; arm64 91 -> 88, 145.5 -> 147.1; exp-1-500-5-5 2-3 s -> time limit, net12 and neos-3216931-puriri lose their solves, rmatr100-p10 2.5x; neos-2978193-inde 70-79 -> 12-13 s | rejected: implied integers change cut generation (c-MIR) and heuristics on network-flow models, and that costs more than it gains |
 | Gomory cut history in the branching score (weight 1e-4; arXiv:2306.06050) | 0.989 without neos-2978193-inde; 22 -> 22. Runners, miplib-easy (runs 39097406609 / 39097407930): solved 64 -> 65 on both arches, sgm 28.9 -> 25.3 s (x64) and 27.3 -> 25.1 s (arm64); dispatch screen (run 39113570874): time 1.000 (arm64), 1.003 (x64), no motivating tick worse | full MIPLIB (runs 39115313907 / 39115315327): x64 solved 92 -> 90, sgm 144.5 -> 145.1; arm64 92 -> 91, 146.1 -> 144.2; and a WRONG result on both arches: traininstance6 ends "optimal" at 28380 with dual bound 28379, beyond the known optimum 28290 (option off: 28290) | rejected: no gain over the full set; the wrong bound on traininstance6 is a latent bug in another component that this path exposes, to be shrunk with bench/mipdd.sh |
 | separator backoff (a separator none of whose cuts entered an LP over 3 runs is skipped for 2..64 calls; arXiv:2311.05650) | 0.994 without neos-2978193-inde; 24 -> 24 (markshare_4_0 119 -> 83 s, neos-911970 8.4 -> 5.4 s) | not run (screen gain within noise) | rejected |
+| strong-branching and pseudocost gains capped at the distance to the cutoff bound (2026-10-24; commit 454668a, branch sb-gain-cap) | local, 8 instances that lost time to the dual-proof fix, 300 s, run alongside other jobs: mas76 86 -> 22 s, gmu-35-40 276 -> 136 s, neos-4738912-atrato and sct2 from the time limit to 117 s and 249 s, the rest within noise | dispatch screen (run 40080166435): time 1.002 (arm64), 0.994 (x64), solved 65 -> 65; miplib-easy (runs 40080167844 / 40080169301): x64 solved 65 -> 66 but sgm 24.0 -> 24.9 s (markshare_4_0 44 -> 163 s, seymour1, swath3, dano3_3 slower), arm64 66 -> 66, sgm 24.7 -> 24.4 s | rejected: the local gains did not carry over to the screens; no full MIPLIB run (unclear screen, and the full runs vary by about +-3 solved) |
+| at most 100 cuts per separation round, after the parallelism filter (2026-10-24; commit c4f26f0, branch cut-cap-100) | local: the same paths as main on most of the 8 instances (100 is rarely reached there); a cap of 1000 changed nothing | dispatch screen (run 40080166435): time 0.997 (arm64), 0.998 (x64), but solved 65 -> 64 on both arches (diverse_10-01_0052 no longer solved) and the end gap +0.009% | rejected: loses a dispatch solve; no miplib-easy run |
 
 HiGHS already detects implied integers column by column (a continuous
 column in an integral equation, or, dually, with integral rows and
@@ -1434,6 +1436,194 @@ and neither has one:
   iterations, and their rounding is what keeps the paths. Recomputing
   only what changed would round differently, so it changes paths and
   needs the full staging as a path-changing change.
+
+## PRICE and CHUZC on the root LP: profile, x86_64, switch rules (2026-10-24)
+
+**x86_64 profile** (`perf record`, GitHub `ubuntu-24.04` runner, AMD EPYC
+9V45, whole run to the end of the root LP, so presolve and the root
+heuristics are included). Dispatch: the factor solves first, as on the M1
+(lambda_080458: bitmap solves 14%, `Dual::iterate` 13%, dense FTRAN 10%,
+row PRICE 9%; dm_full_pert_s1_ramp: dense FTRAN 16%, `iterate` 12%, bitmap
+11%, row PRICE 10%). MIPLIB: `Dual::iterate` is much larger than on the
+M1 (dano3_3 29%, rail507 29%, neos-957323 25%, qap10 19%), then row PRICE
+(18% on dano3_3, rail507 and neos-957323) and column PRICE (air04 6%,
+qap10 8%).
+
+**What `Dual::iterate` holds** (M1, the CHUZC helpers out of line, same
+paths): CHUZC and the dual update over the packed row. On rail507:
+row PRICE 40%, `choose_possible` 16%, `update_dual` 10%, `choose_makepack`
+8%, `choose_final` 7%; neos-957323: PRICE 33%, `choose_possible` 21%,
+`choose_final` 12%, `choose_makepack` 10%; dano3_3: PRICE 21%,
+`choose_possible` 8%, makepack and `update_dual` 4% each. So on these LPs
+(few rows, long rows: set covering and partitioning) an iteration is one
+dense pass after another over row_ap: PRICE, pack, candidates, dual
+update.
+
+**Row-wise matrix and nonbasic columns.** The row-wise copy is already
+partitioned into nonbasic and basic columns (HiGHS's `ar_p_end`), so
+row PRICE touches only nonbasic entries; keeping it partitioned
+(`update_matrix`) is 0.7%. Column PRICE (row_ep density above 0.75)
+computes the basic columns too and then zeroes them, but skipping them
+would change row_ap's count and so the density estimates and the path,
+and basic columns are at most num_row of many more (air04: 823 of 8904).
+
+**Tried, no gain (M1 instructions, root LPs, paths unchanged unless
+noted):**
+- Row PRICE's new-nonzero index stored by a select: 1.000 on eight
+  PRICE-heavy roots (LLVM already does this).
+- Column PRICE from row_ep density 0.95 instead of 0.75: MIPLIB 0.996,
+  dispatch 1.000; from 0.5: MIPLIB 1.015 (rail507 1.13, dano3_3 1.10).
+- Hyper-sparse row PRICE threshold 0.05 or 0.2 instead of 0.1: within
+  0.997-1.005.
+
+What is left is the four passes over row_ap. Fusing the pack copy into
+PRICE and CHUZC (no pack arrays) is bounded by `choose_makepack`'s 4-10%
+on these MIPLIB roots and about 1% on dispatch, and moves gathers into
+`choose_possible`. Not done.
+
+## Root LP iteration counts: algorithm, perturbation, IPX (2026-10-24)
+
+The per-iteration cost of the root LP is covered above; this is the other
+lever, the number of iterations. First root LP of the MIP (presolved, one
+thread, M1), each option set on the MIP's LP relaxation only (geometric
+means of ratios against the default: iterations, root LP time):
+
+| Group | default: iterations, root s | primal simplex | no cost perturbation | perturbation x0.5 | perturbation x2 | IPX + crossover (time) |
+|---|---|---|---|---|---|---|
+| dispatch noramp (14) | 9551, 0.32 | 1.69, 2.35 | 1.03, 1.01 | 1.02, 1.03 | 0.99, 1.00 | 2.57 |
+| dispatch ramp (5) | 17898, 2.85 | 1.82, 2.38 | 1.14, 1.03 | 0.98, 0.90 | 0.93, 0.88 | 0.67 |
+| lambda ticks (3) | 15482, 1.76 | 1.98, 1.55 | 0.99, 0.97 | 1.00, 1.01 | 1.06, 1.08 | 0.77 |
+| hard_10-03, diverse_10-01 | 12497, 1.08 | 2.41, 2.40 | 1.00, 0.97 | 0.97, 0.92 | 1.01, 1.09 | 1.61 |
+| MIPLIB, PRICE-heavy (11) | 19002, 2.57 | 1.12, 1.48 | 1.82, 2.35 | 1.12, 1.21 | 0.92, 0.90 | 0.49 |
+| buildingenergy | 252109, 66.8 | 0.77, 5.81 | 1.33, 1.12 | 1.00, 0.90 | 1.01, 1.26 | over 600 s |
+
+- No setting takes 10% off the dispatch roots without a loss elsewhere:
+  perturbation x0.5 is 0.90 on the ramp models and buildingenergy but 1.21
+  on MIPLIB; x2 is 0.88 on the ramp models and 0.90 on MIPLIB but 1.08 on
+  the lambda ticks and 1.26 on buildingenergy. All dispatch models: 0.99
+  either way.
+- The primal simplex takes 1.7-2.4 times the iterations on dispatch.
+- IPX with crossover: as found before (`mip_root_lp_ipx`), faster on the
+  ramp and lambda models, slower on the rest; on two threads the race
+  already picks it where it wins.
+- Crash bases: `simplex_crash_strategy` is not used by the simplex (as in
+  HiGHS, whose dual simplex starts from the slack or a given basis), and
+  the dual phase 1 has no alternative to choose. How far the slack basis
+  is from the optimum: the dual simplex takes 1.0-1.2 iterations per basic
+  structural column of the optimal basis on the noramp models and 1.4-2.4
+  on the ramp and lambda ones (2026-10-10 above), so on most dispatch
+  roots it is near the floor that a slack start allows; a crash would have
+  to guess most of the optimal structural basis to help, and the ramp and
+  lambda models, where there is room, are the ones IPX already wins.
+
+Nothing kept.
+
+## Dual edge weights between the MIP's LP solves (2026-10-24)
+
+How DSE weights survive re-solves (simplex/dual.rs, hekk.rs
+restore_dual_edge_weights; the MIP's LP relaxation sets
+`simplex_dse_exact_init_max_rows` = 20000): the weights stay while the
+simplex keeps its basis (node to node, LNS re-solves, after cut additions:
+new rows come in with basic logicals and the existing weights unchanged;
+after cut deletions the weights of the remaining rows are kept). They are
+lost when the basis is set from outside (a stored node basis, a restart,
+dualization): then, above 20000 rows, the saved weights of the variables
+still basic are restored (missing ones computed by a BTRAN each) or unit
+weights used; at or below 20000 rows they are recomputed exactly, one
+BTRAN per row. A near-optimal start uses Devex instead of computing all
+weights. Graph LNS re-solves the main LP (no sub-MIP), so its LPs keep
+their weights.
+
+Share of the time in the exact recomputation (samply, 1 thread):
+
+| model | rows | exact DSE init | DSE FTRAN per iteration |
+|---|---|---|---|
+| hard_10-03, diverse_10-01, hard tick, dm_full_pert_s1_ramp, lambda 080458 | > 20000 | 0% (restore: <0.1%) | 6.8-19% |
+| dm_medium_randsoc_noramp | 15.6k | 1.1% | 10.1% |
+| dm_small_pert_s1_ramp | 5.4k | 4.5% | 17.8% |
+| neos-911970 / pk1 / air05 | small | 4.6% / 5.6% / 1.7% | 4.8% / 2.8% / 2.4% |
+
+Experiments (paths change):
+- (a) Devex for sub-MIP LPs, node LPs or both (`simplex_dual_edge_weight_strategy`
+  on those LP solves only): no change on the dispatch models (they solve at
+  the root; graph LNS uses the main LP); neos-911970 1.12 / 1.16 / 1.01x the
+  instructions. (Devex for the LNS LPs was rejected earlier: twice the
+  instructions on the hardest tick.)
+- (b) weights kept at every size (`simplex_dse_exact_init_max_rows` = 0 in
+  the MIP; branch dse, 25ee6cc). Locally, instructions to finish, 1 thread:
+  dm_medium_randsoc 0.77, dm_small_pert_s1_ramp 0.73, dm_small_windlull
+  0.65, dm_medium_pert_s1_ramp 1.01, neos-911970 1.09, pk1 0.91, air05
+  0.93, neos17 1.06, nu25-pr12 0.64, mzzv11 0.96 (geometric mean 0.86).
+  Dispatch screen (run 40081473738, 1 thread): time 0.970 (arm64), 0.965
+  (x64); medium and small models 0.88-0.93, the large ones 0.994-1.005, no
+  loss. miplib-easy (runs 40081476692 main / 40081477922): arm64 solved
+  66 -> 66, shifted time 0.952 [0.884, 1.025], sgm 24.6 -> 22.9 s; x64
+  65 -> 66, 1.014 [0.939, 1.094], 23.5 -> 23.7 s; on both arches much
+  slower ns1208400 (2.4-2.8x), swath3, seymour1, dano3_3 (1.6-2.3x) and
+  much faster neos-3083819-nubu, decomp2 (8-9x), n2seq36q, neos-1582420
+  (2x).
+
+  Full runs (branch dse, main run at the same time). Dispatch, 25 models,
+  16 seeds, 180 s: one thread (run 40083950258) 1.001 (arm64), 0.997
+  (x64), solved 373 -> 372 and 371 -> 371; two threads (40083952331) 0.985
+  and 0.978, 380 -> 380 and 379 -> 381. The screen's medium and small
+  models gain on one thread (dm_medium_randsoc 0.91, dm_small_windlull
+  0.89-0.91, dm_medium_pert_s1_noramp 0.93), but others lose:
+  dm_full_coarse24_noramp 1.13-1.14, dm_medium_pert_s1_ramp 1.11,
+  dm_small_prices_noramp 1.09-1.11 (two threads 1.12-1.28). Full MIPLIB
+  (40083954298 main / 40083955499): arm64 solved 94 -> 91, sgm 144.9 ->
+  145.9 s; x64 90 -> 90, 143.9 -> 146.2 s; no wrong result. Fails the
+  merge criteria (dispatch <= 0.98 on both arches with no tick above 1.03;
+  MIPLIB within -2 solved and sgm <= 1.01): not merged, nothing kept.
+
+  Why ns1208400 and swath3 lost in miplib-easy (local, 1 thread, seed 0):
+  not stale weights costing iterations per solve, but another search
+  path. Iterations per node in the tree are the same or lower with kept
+  weights (ns1208400 169 -> 145, swath3 21.5 -> 20.7), while nodes grow
+  (357 -> 1023, 7829 -> 21439) and strong branching with them. Over seeds
+  1 and 2 it goes both ways: ns1208400 20.6 -> 33.6 s and 28.3 -> 17.9 s,
+  swath3 69.2 -> 59.6 s and 55.2 -> 69.0 s.
+
+## Simplex rebuilds: the exact primal and dual recompute (2026-10-25)
+
+Where compute_primal and compute_dual run in the MIP's LP solves (samply,
+1 thread, 120 s; share of all samples, by caller):
+
+| | hard_10-03 | diverse_10-01 | hard tick | dm_full_pert_s1_ramp | lambda 080458 |
+|---|---|---|---|---|---|
+| primal at the start of a solve (initialise_for_solve) | 5.1% | 3.9% | 4.0% | 1.2% | 0.2% |
+| primal in rebuilds | 4.0 | 3.4 | 2.7 | 1.0 | 0.8 |
+| dual in rebuilds | 3.6 | 3.1 | 2.7 | 1.0 | 0.7 |
+| dual at the start of a solve | 2.3 | 0.6 | 0.4 | 0.2 | 0.03 |
+| at the end of a solve (return_from_solve: objective bound, limits) | 0.2 | 0.6 | 0.8 | 0.02 | 0 |
+
+Why the rebuilds happen (hard_10-03, 60 s, 14000 rebuilds): 7599 are the
+first rebuild of a solve, which already reuses the set-up's fresh values
+(no recompute); 3397 confirm optimality (CHUZR found no infeasible row)
+and 2933 a possibly dual-unbounded LP (an infeasible graph-LNS LP); 67
+follow a refactorization on the synthetic clock, 1 the update limit, 3
+other reasons. The set-up recomputes the primal values after every
+bound change (the graph LNS fixings) and the dual values unless basis and
+costs are unchanged (kept already, by hash).
+
+Path-preserving angles: none of size. What each recompute depends on has
+changed when it runs (bounds at the set-up; the basis since the last
+exact values in the confirming rebuilds), the dual values are already
+skipped when basis and costs hash equal, the first rebuild already reuses
+the set-up's values, and the end-of-solve recompute after an objective
+bound is 0.2-0.8%. The dense rhs (collect_aj over the nonbasic columns)
+and the full PRICE of compute_dual keep their order.
+
+Tried (changes values, so paths): the primal values at a solve's start
+updated from the previous solve's (same basis) by one FTRAN of the
+columns whose nonbasic value changed, instead of the exact recompute (the
+solve's confirming rebuild still recomputes exactly). Instructions to
+finish, 1 thread: hard tick 0.87, dm_full_pert_s1_ramp 0.96, lambda
+080458 1.00, dm_small_pert_s1_ramp 1.82, dm_medium_randsoc 0.92,
+dm_small_windlull 1.22, dm_medium_pert_s1_ramp 1.08, neos-911970 0.94 /
+1.00, pk1 0.76, air05 1.00, neos17 0.74, nu25-pr12 1.08, mzzv11 1.00:
+geometric mean 1.00, the spread from the changed paths. Below the 3% bar
+for a screen; not kept.
 
 ## Other platforms
 
