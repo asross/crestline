@@ -1185,6 +1185,28 @@ geometric mean of the time ratios of runs both solve):
 Solved: 67 -> 67 (both arches) for the first row. Runs 39970299772 and
 39985883614.
 
+**Follow-up (b), 2026-10-24: a clock with work outside LP solves.** Tried
+(local, M1, two threads, `mip_rel_gap = 0.01`; wall time of single runs,
+the paths deterministic): adding to the work clock per root separation
+round (4-64 LP iterations per 1000 rows), per node (4-16 per 1000 rows),
+per 1000 propagated rows (1-16), per graph LNS iteration (4-64 per 1000
+rows), live simplex iterations (the clock moves during an LP solve, not
+only at its end), and other ratios (main 0.5-3, helper 0.3-0.9), with
+and without the root race (the race counted deterministically). Best
+(race kept, separation 4): hard tick 6.4 s off -> 9.0-11 s, 
+dm_small_pert_s1_ramp 1.21 -> 1.34-1.57, dm_medium_randsoc_noramp 1.05 ->
+1.52-1.56, dm_full_pert_s1_ramp 6.1 -> 7.1-7.6, wind185 1.31 -> 1.38,
+dm_full_randsoc_ramp 6.3 -> 6.3. Without the race add the race's own cost
+(lambda_080458 1.8 -> 2.7 s). No setting comes near 1.1x, so no runner
+screen. Why: the helper's graph LNS finds its solutions in bursts and,
+off, the main solver takes each at once during its quick search and root
+separation; deterministic, it takes them at most at half its own work,
+and the helper's work does not run at a steady rate (a root LP re-solve
+adds thousands of iterations at once, LNS screens add none), so no
+weighting keeps the two clocks in step with time. Weights that help one
+model hurt another (live iterations: small_pert 1.57 -> 1.34,
+medium_randsoc 1.56 -> 1.81). Nothing kept.
+
 **A crash found on the way: a linker bug, not undefined behaviour.** With
 the deterministic check inlined into import_root_cuts, the macOS release
 build crashed at the root (every MIP, even egout on one thread with the
