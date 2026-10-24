@@ -362,6 +362,13 @@ pub fn assess_costs(
             continue;
         }
         let c = &mut cost[usr as usize];
+        if c.is_nan() {
+            // Crestline: HiGHS lets a NaN cost through, and the dual
+            // simplex then loops at iteration 0 (check/instances/nan0.mps
+            // with presolve off)
+            log_user!(log, LogType::Error, "Cost %d is NaN\n", usr);
+            return Status::Error;
+        }
         if *c >= infinite_cost {
             num_infinite_cost += 1;
             *c = INF;
@@ -691,6 +698,10 @@ pub fn assess_matrix(
                     component,
                     vec_dim
                 );
+                return Status::Error;
+            }
+            if value[el as usize].is_nan() {
+                log_user!(log, LogType::Error, "%s matrix packed vector %d, entry %d, is NaN\n", name, ix, el);
                 return Status::Error;
             }
             let s = seen[component as usize];

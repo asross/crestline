@@ -6,6 +6,7 @@ same path: the same simplex iterations, nodes, objective and status. The
 differences are in how fast each step runs.
 
 Since 2026-10-17 that holds for crest built with `--features hyper_dfs`
+(since 2026-10-23 also `highs_dual_proofs`)
 and run with `mip_root_lp_devex_density = inf` (see the root LP section
 below); the default build takes other paths.
 
@@ -1207,6 +1208,51 @@ outside LP solves (separation rounds, propagation, nodes), so the two
 clocks run at similar rates in time. Also a candidate for the default
 path: counting the race's effort deterministically (the second row) keeps
 the race's speed and removes the iteration-count nondeterminism.
+
+## Wrong optimum on traininstance6: dual proofs dropped tiny coefficients (2026-10-23)
+
+Found by the Gomory-history experiment above, then on main itself:
+traininstance6 (MIPLIB 2017, optimum 28290) ended "optimal" at 28380
+(Gomory branch, seed 0), 29090 (Gomory branch, seed 1) and 28350 (main,
+random_seed 9); main's seeds 0-8 were right.
+
+Diagnosis (seed 1, the 77 s case):
+- dumping the presolved model at each restart: the model after the
+  first restart still has optimum 28290 (crest and SCIP), the model with
+  the cuts in the LP at the second restart has 31780: a cut was invalid;
+- checking each cut added to the pool against an optimum of the
+  restart-1 model (rounded to integers, exactly feasible): the first
+  violating cut is a conflict from generate_conflict, called by
+  add_infeasible_conflict after an infeasible strong-branching LP;
+- the dual infeasibility proof behind it, sum a_j x_j <= 5.10e-5 with 47
+  coefficients of about 1.1e-6, is violated by that optimum (5.21e-5):
+  storeDualInfProof (and computeDualProof) drop coefficients below
+  epsilon (1e-9) instead of moving them to the right-hand side with their
+  bound. One of them sits on a column with bound ~29000, so dropping it
+  strengthens the proof by ~3e-5; the cover cut derived from the proof
+  then excludes every optimum. (HiGHS has the same code; its
+  checkDualProof is disabled.)
+
+Fix: tiny entries move to the right-hand side with their global bound, as
+the entries below feastol already did (no proof if that bound is
+infinite). The cargo feature `highs_dual_proofs` keeps HiGHS's behaviour,
+for the CI oracle. traininstance6 with the fix: 28290
+on main seeds 0-3 and 9, and on the Gomory branch's seeds 0 and 1.
+
+Screens (runs with an option, since replaced by the feature): dispatch (run 39985670699) time 0.995 on both arches, no
+motivating tick worse; miplib-easy, off against on at the same commit
+(runs 39985674652 / 39985678322): x64 solved 66 -> 64 (neos-1456979 289 s
+and tr12-30 193 s now at the 300 s limit), sgm 24.6 -> 23.8 s; arm64
+66 -> 66, 24.1 -> 24.1 s; no wrong result.
+
+Full MIPLIB, off against on at the same commit (runs 39990345509 /
+39990349399): x64 solved 95 -> 90, sgm 140.6 -> 143.4 s (lost 30n20b8,
+csched008, dano3_5, neos-1456979, neos-3216931-puriri,
+neos-4738912-atrato, sct2, tr12-30, most of them past 250 s already;
+gained fast0507, neos-787933, wachplan); arm64 94 -> 92, 144.2 -> 145.5 s
+(lost csched008, neos-4738912-atrato, sct2; gained fast0507); no wrong
+result either way. A cost of about 1-2% in sgm, taken for a correct
+proof: the old proofs were stronger only because they were invalid.
 
 ## Other platforms
 

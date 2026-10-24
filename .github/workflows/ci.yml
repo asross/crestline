@@ -45,12 +45,12 @@ jobs:
             -DCMAKE_C_FLAGS=-ffp-contract=off -DCMAKE_CXX_FLAGS=-ffp-contract=off \
             -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF
           cmake --build build-cpp --parallel 4 --target highs-bin
-      - run: cargo build --release --bin crest --features "libstdcxx no_fma hyper_dfs"
+      - run: cargo build --release --bin crest --features "libstdcxx no_fma hyper_dfs highs_dual_proofs"
       - run: HIGHS_DIR=$PWD/highs-cpp bash bench/quick_check.sh build-cpp/bin/highs target/release/crest
       # The build for AWS Lambda (AVX2, FMA): with no_fma (no fused
       # multiply-adds) x86-64-v3 must take the C++ app's paths too
       - name: crest for x86-64-v3 against the C++ app
         run: |
           RUSTFLAGS="-C llvm-args=-unroll-runtime=false -C target-cpu=x86-64-v3" \
-            cargo build --release --bin crest --features "libstdcxx no_fma hyper_dfs"
+            cargo build --release --bin crest --features "libstdcxx no_fma hyper_dfs highs_dual_proofs"
           HIGHS_DIR=$PWD/highs-cpp bash bench/quick_check.sh build-cpp/bin/highs target/release/crest
