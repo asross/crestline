@@ -158,8 +158,6 @@ pub struct CLpMip {
     pub max_abs_row_coef: *const f64,
     pub age_limit: i32,
     pub parallel_lock: bool,
-    /// mip_dual_proof_tiny_bound_terms
-    pub proof_tiny_bound_terms: bool,
     pub submip: bool,
     /// symmetries.columnToOrbitope is not empty
     pub has_orbitopes: bool,
@@ -1089,7 +1087,7 @@ impl LpRelax {
                 sum -= lp.a_value[j] * rd;
             }
             let val = sum.to_f64();
-            if val == 0.0 || (!m.m.proof_tiny_bound_terms && val.abs() <= m.m.small_matrix_value) {
+            if val == 0.0 || (cfg!(feature = "highs_dual_proofs") && val.abs() <= m.m.small_matrix_value) {
                 continue;
             }
             // a tiny entry still moves to the right-hand side with its
@@ -1177,7 +1175,7 @@ impl LpRelax {
         for &i in &self.row_ap.nonzeroinds {
             let iu = i as usize;
             let val = self.row_ap.get_value(i);
-            if val == 0.0 || (!m.m.proof_tiny_bound_terms && val.abs() <= eps) {
+            if val == 0.0 || (cfg!(feature = "highs_dual_proofs") && val.abs() <= eps) {
                 continue;
             }
             // tiny entries move to the right-hand side with their global

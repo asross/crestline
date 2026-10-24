@@ -6,6 +6,7 @@ same path: the same simplex iterations, nodes, objective and status. The
 differences are in how fast each step runs.
 
 Since 2026-10-17 that holds for crest built with `--features hyper_dfs`
+(since 2026-10-23 also `highs_dual_proofs`)
 and run with `mip_root_lp_devex_density = inf` (see the root LP section
 below); the default build takes other paths.
 
@@ -1169,13 +1170,13 @@ Diagnosis (seed 1, the 77 s case):
   then excludes every optimum. (HiGHS has the same code; its
   checkDualProof is disabled.)
 
-Fix: `mip_dual_proof_tiny_bound_terms` (default true): tiny entries move
-to the right-hand side with their global bound, as the entries below
-feastol already did (no proof if that bound is infinite). False is
-HiGHS's behaviour, for the CI oracle. traininstance6 with the fix: 28290
+Fix: tiny entries move to the right-hand side with their global bound, as
+the entries below feastol already did (no proof if that bound is
+infinite). The cargo feature `highs_dual_proofs` keeps HiGHS's behaviour,
+for the CI oracle. traininstance6 with the fix: 28290
 on main seeds 0-3 and 9, and on the Gomory branch's seeds 0 and 1.
 
-Screens: dispatch (run 39985670699) time 0.995 on both arches, no
+Screens (runs with an option, since replaced by the feature): dispatch (run 39985670699) time 0.995 on both arches, no
 motivating tick worse; miplib-easy, off against on at the same commit
 (runs 39985674652 / 39985678322): x64 solved 66 -> 64 (neos-1456979 289 s
 and tr12-30 193 s now at the 300 s limit), sgm 24.6 -> 23.8 s; arm64
