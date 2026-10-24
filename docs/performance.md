@@ -1350,6 +1350,67 @@ Tried, not kept:
   (23713 -> 26956, 20012 -> 21553, 19720 -> 22511) and 21-34% more cycles;
   the division is not the cost it looks.
 
+## Refactorizations in node and sub-MIP LP solves (2026-10-24)
+
+What refactorizes, and why. This was measured with temporary counters on
+every factor build, keyed by the trigger, and with timers on the dual
+simplex's iterations, rebuilds and whole solves (1 thread, 1% gap, 120 s,
+main at 0ff794e):
+
+| model | nodes | LP solves | LP time | refactors | refactor time | of which cut changes | node-basis restores | in-solve: synthetic clock / numerical / other |
+|---|---|---|---|---|---|---|---|---|
+| hard_10-03_1340 (120 s limit) | 181 | 14727 | 75.3 s | 231 | 1.46 s (1.9%) | 86, 0.64 s | 7, 0.05 s | 109 / 16 / 13 |
+| diverse_10-01_0052 (120 s limit) | 202 | 10543 | 94.5 s | 502 | 3.05 s (3.2%) | 78, 0.53 s | 14, 0.09 s | 328 / 66 / 15 |
+| lambda_20260930_142050_3c1b60d6 (hard tick) | 1 | 1663 | 12.2 s | 108 | 0.48 s (3.9%) | 30, 0.18 s | 5, 0.02 s | 72 / 1 / 0 |
+| dm_full_pert_s1_ramp | 1 | 489 | 15.9 s | 157 | 0.78 s (4.9%) | 1 | 3 | 152 / 1 / 0 |
+| lambda_20260930_080458_22776806 | 1 | 15 | 2.7 s | 57 | 0.18 s (6.5%) | 0 | 3 | 54 / 0 / 0 |
+| air05 (sub-MIPs: 1148 solves, 1.6 s) | 1 | 445 | 1.9 s | 407 | 0.11 s | 61 | 7 | 338 / 0 / 0 |
+| neos17 (sub-MIPs: 2904 solves, 0.8 s) | 35 | 1664 | 0.5 s | 262 | 0.02 s | 97 | 31 | 133 / 0 / 0 |
+
+"Cut changes" are added or deleted rows. HEkk clears itself on either,
+and the next solve builds the factor from scratch. "Node-basis restores"
+are setBasis calls (new basis). The sub-MIPs refactor mostly on restored
+bases, e.g. 811 of neos17's 1218, but cheaply (0.05 s). So on these
+models refactorizations cost 2-6% of the LP time, the cut-change ones
+0.5-1.4%, and restores almost nothing. Extending the factor with the new
+slacks (HFactor::add_rows is ported but unused, like HiGHS's
+kExtendInvertWhenAddingRows) could save at most about 1%, and that is
+below what the screens can see. It was not tried.
+
+The cost is elsewhere in each solve. On hard_10-03 the 75.3 s of LP time
+splits into iterations 35.2 s, rebuilds 17.2 s (computing the primal and
+dual values: dense FTRAN and BTRAN on these models) and other work in the
+solve 22.9 s. A sampled profile of the LP solves shows two items:
+- The KKT and infeasibility checks of the unscaled solution after each
+  solve: lp_kkt_check 4.7% plus get_unscaled_infeasibilities 2.3%.
+- factor_solve_error at 4.3%. That is the test solve (an FTRAN and a
+  BTRAN of a random 50-nonzero vector) that decides whether a rebuild at
+  a possible optimum may skip the refactor. It runs at every such rebuild
+  and almost never asks for a refactor: 0 of 10765 checks on diverse, 1
+  of 12116 on hard_10-03, 0 of 3760 on the hard tick, 2 of about 30000 on
+  9 MIPLIB models. The factors it checks carry about 1200 updates on the
+  dispatch ticks. The check cost 3-5% of the LP time on the dispatch
+  models, neos17, neos-911970 and nu25-pr12.
+
+Lever tried (branch refactor-check-skip, commit f35b10d): a check that
+passes covers the next 50 updates of the same factor, and a new factor
+is checked again.
+- Local runs: the same nodes, LP iterations and objective as main on the
+  hard tick, dm_full_pert_s1_ramp, lambda 080458, neos17, neos-911970,
+  nu25-pr12 and air05 (to 1% gap), and on hard_10-03 and diverse to 60
+  nodes. Time 73.96 / 75.60 s and 50.63 / 51.97 s on the two node-limited
+  ticks, about the same on the rest.
+- CI's oracle job matches the C++ app without a feature to restore the
+  old check.
+- Dispatch screen (run 40084214640): per-instance time ratios 0.96-1.007,
+  most 0.98-0.99. The geometric mean shows 1.016 (arm64) and 1.015 (x64)
+  only because of diverse_10-01_0052's one solved pair (1.28). t1 0.993
+  (arm64), 0.989 (x64); hard_10-03 t1 0.978 on x64.
+- miplib-easy (runs 40084216316 / 40084218091): x64 solved 65 -> 66
+  (tr12-30), sgm 25.3 -> 25.4 s; arm64 66 -> 66, 25.0 -> 24.2 s; no wrong
+  result.
+- Full MIPLIB pair queued: runs 40100258558 / 40100260501.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
