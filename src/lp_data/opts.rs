@@ -149,7 +149,13 @@ macro_rules! options {
         impl Default for Opts {
             /// HighsOptions()
             fn default() -> Opts {
-                Opts { $($name: opt_val!($kind, $default),)* }
+                let mut o = Opts { $($name: opt_val!($kind, $default),)* };
+                // the C++ HiGHS's paths where Crestline's default differs
+                // and the C++ has no option (the oracle checks set it)
+                if std::env::var_os("CRESTLINE_HIGHS_PATHS").is_some() {
+                    o.mip_lp_dse_exact_init_max_rows = 20000;
+                }
+                o
             }
         }
 

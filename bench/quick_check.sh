@@ -7,6 +7,8 @@
 # Optional: MIPLIB_DIR (air05, neos17, ... .mps.gz) and DISPATCH_DIR add
 # MIPs when present. Exit status 0 iff everything matches.
 set -u
+# crest's defaults where the C++ has no option to match (src/lp_data/opts.rs)
+export CRESTLINE_HIGHS_PATHS=1
 ab() { case $1 in /*) echo "$1";; *) echo "$PWD/$1";; esac; }
 BENCH=$(ab "$(dirname "$0")")
 ROOT=$(ab "${HIGHS_DIR:?set HIGHS_DIR to a HiGHS checkout}")
@@ -17,7 +19,7 @@ fail=0
 tmp=$(mktemp -d)
 printf "threads = 1\nrandom_seed = 0\nmip_rel_gap = 0.01\nmip_max_nodes = 200\n" > $tmp/mip.opts
 # crest with the C++ app's setting of its own options that change paths
-{ cat $tmp/mip.opts; printf "mip_graph_lns_cost_perturbation = true\nmip_root_lp_devex_density = inf\nmip_symmetry_static_orbitopes = false\nmip_lp_dse_exact_init_max_rows = 20000\n"; } > $tmp/crest.opts
+{ cat $tmp/mip.opts; printf "mip_graph_lns_cost_perturbation = true\nmip_root_lp_devex_density = inf\nmip_symmetry_static_orbitopes = false\n"; } > $tmp/crest.opts
 filt() { grep -E "iterations:|Objective value|Model status|^  Nodes|^  LP iterations|Primal bound|Dual bound"; }
 n=0
 for f in 25fv47 80bau3b greenbea perold stair afiro adlittle etamacro israel shell woodinfe gas11; do
@@ -39,7 +41,7 @@ gzip -c $I/qptestnw.lp > $tmp/qptestnw.lp.gz
 for f in $I/*.lp $tmp/25fv47.mps.gz $tmp/qptestnw.lp.gz; do
   for o in "" "--presolve off"; do
     a=$(cd $tmp && $CPP $o --options_file mip.opts "$f" 2>&1 | mask)
-    c=$(cd $tmp && $CREST $o --options_file crest.opts "$f" 2>&1 | grep -vE "^Set option (mip_graph_lns_cost_perturbation|mip_root_lp_devex_density|mip_symmetry_static_orbitopes|mip_lp_dse_exact_init_max_rows)" | mask)
+    c=$(cd $tmp && $CREST $o --options_file crest.opts "$f" 2>&1 | grep -vE "^Set option (mip_graph_lns_cost_perturbation|mip_root_lp_devex_density|mip_symmetry_static_orbitopes)" | mask)
     n=$((n+1)); [ "$a" == "$c" ] || { echo "DIFF $(basename $f) $o"; diff <(echo "$a") <(echo "$c") | head -10; fail=1; }
   done
 done
