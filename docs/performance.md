@@ -1181,6 +1181,15 @@ motivating tick worse; miplib-easy, off against on at the same commit
 and tr12-30 193 s now at the 300 s limit), sgm 24.6 -> 23.8 s; arm64
 66 -> 66, 24.1 -> 24.1 s; no wrong result.
 
+Full MIPLIB, off against on at the same commit (runs 39990345509 /
+39990349399): x64 solved 95 -> 90, sgm 140.6 -> 143.4 s (lost 30n20b8,
+csched008, dano3_5, neos-1456979, neos-3216931-puriri,
+neos-4738912-atrato, sct2, tr12-30, most of them past 250 s already;
+gained fast0507, neos-787933, wachplan); arm64 94 -> 92, 144.2 -> 145.5 s
+(lost csched008, neos-4738912-atrato, sct2; gained fast0507); no wrong
+result either way. A cost of about 1-2% in sgm, taken for a correct
+proof: the old proofs were stronger only because they were invalid.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
