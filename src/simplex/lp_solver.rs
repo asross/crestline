@@ -248,6 +248,8 @@ struct Info {
     updated_dual_objective_value: f64,
     updated_primal_objective_value: f64,
     num_basic_logicals: i32,
+    /// The update count of the factor's last passing solve-error check
+    solve_error_checked_update_count: i32,
 }
 
 /// A HighsSparseMatrix: the row-wise matrix partitioned by nonbasicFlag
@@ -2196,6 +2198,7 @@ impl LpSolver {
             num_costly_dse_iteration: sh(&mut self.info.num_costly_dse_iteration),
             average_log_low_dse_weight_error: sh(&mut self.info.average_log_low_dse_weight_error),
             average_log_high_dse_weight_error: sh(&mut self.info.average_log_high_dse_weight_error),
+            solve_error_checked_update_count: sh(&mut self.info.solve_error_checked_update_count),
             simplex_strategy: sh(&mut self.info.simplex_strategy),
             min_concurrency: sh(&mut self.info.min_concurrency),
             max_concurrency: sh(&mut self.info.max_concurrency),
