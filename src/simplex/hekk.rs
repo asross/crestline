@@ -265,6 +265,7 @@ pub struct CHekk {
     pub num_costly_dse_iteration: Shared<i32>,
     pub average_log_low_dse_weight_error: Shared<f64>,
     pub average_log_high_dse_weight_error: Shared<f64>,
+    pub solve_error_checked_update_count: Shared<i32>,
     pub simplex_strategy: Shared<i32>,
     pub min_concurrency: Shared<i32>,
     pub max_concurrency: Shared<i32>,
@@ -1001,6 +1002,9 @@ pub fn rebuild_refactor(e: &mut EkkView, x: &CHekk, rebuild_reason: i32) -> bool
     rebuild_refactor_with(e, x, rebuild_reason, factor_solve_error)
 }
 
+/// The updates of a factor that a passing solve-error check covers
+const SOLVE_ERROR_CHECK_UPDATES: i32 = 50;
+
 /// rebuild_refactor with the factor's solve error given by `solve_error`
 pub fn rebuild_refactor_with(
     e: &mut EkkView,
@@ -1030,9 +1034,18 @@ pub fn rebuild_refactor_with(
         // Possibly revise the decision based on accuracy when solving a
         // test system
         let error_tolerance = x.rebuild_refactor_solution_error_tolerance;
-        if error_tolerance > 0.0 {
+        // A check that passed covers the next SOLVE_ERROR_CHECK_UPDATES
+        // updates of the same factor (HiGHS checks at every rebuild: a few
+        // percent of the LP time of MIP node solves, almost never failing)
+        let update_count = *e.update_count;
+        let last = x.solve_error_checked_update_count.get();
+        let skip = update_count >= last && update_count < last + SOLVE_ERROR_CHECK_UPDATES;
+        if error_tolerance > 0.0 && !skip {
             let solution_error = solve_error(e);
             refactor = solution_error > error_tolerance;
+            if !refactor {
+                x.solve_error_checked_update_count.set(update_count);
+            }
         }
     }
     refactor
