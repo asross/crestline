@@ -1710,4 +1710,14 @@ pub const RECORDS: &[Meta] = &[
         dbl: (0.0, 0.0, 0.0),
         str_default: "",
     },
+    Meta {
+        type_: INT,
+        advanced: false,
+        name: "mip_lp_dse_exact_init_max_rows",
+        description: "simplex_dse_exact_init_max_rows of the MIP's LP relaxation: up to this many rows its dual steepest-edge weights are recomputed exactly (one BTRAN per row) when a basis is set, above it they are kept or start from unit weights (HiGHS: 20000)",
+        bool_default: false,
+        int: (0, 0, 2147483647),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
 ];

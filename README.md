@@ -75,7 +75,8 @@ Details: [docs/porting.md](./docs/porting.md).
 
 Built with the `hyper_dfs` and `highs_dual_proofs` features and run with the options that restore
 HiGHS's behaviour (`mip_graph_lns_cost_perturbation = true`,
-`mip_root_lp_devex_density = inf`), Crestline makes the same
+`mip_root_lp_devex_density = inf`, `mip_symmetry_static_orbitopes = false`,
+`mip_lp_dse_exact_init_max_rows = 20000`), Crestline makes the same
 floating-point operations in the same order as the C++ HiGHS it derives
 from, so its output (logs, solution and basis
 files, iteration and node counts) matches the C++ `highs` app byte for

@@ -158,8 +158,10 @@ Graph LNS and branch and bound solve many LPs of a few iterations each, so
 the fixed cost of a solve dominates. In the MIP's LP relaxation (all
 iteration counts unchanged):
 - dual steepest-edge weights are kept over basis changes and cut additions
-  for LPs above 20000 rows (`simplex_dse_exact_init_max_rows`) instead of
-  being recomputed by one BTRAN per row;
+  (`mip_lp_dse_exact_init_max_rows` = 0: restored for the variables still
+  basic, otherwise unit weights) instead of being recomputed by one BTRAN
+  per row (HiGHS does that up to 20000 rows; see
+  [performance.md](./performance.md));
 - the simplex random vectors are kept (`simplex_keep_random_vectors`) and
   only the absolute primal and dual infeasibilities are assessed after a
   solve (`full_lp_kkt_check = false`);
@@ -191,7 +193,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_root_lp_effort_from_basis` | false (see [performance.md](./performance.md)) |
 | `mip_graph_lns_deep_early` | false (see above and [performance.md](./performance.md)) |
 | `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
-| `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
+| `mip_lp_dse_exact_init_max_rows` | 0: the MIP's LP relaxation keeps its dual steepest-edge weights at every size (HiGHS: 20000, as `simplex_dse_exact_init_max_rows`) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
 
