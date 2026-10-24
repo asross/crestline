@@ -1396,6 +1396,43 @@ PRICE and CHUZC (no pack arrays) is bounded by `choose_makepack`'s 4-10%
 on these MIPLIB roots and about 1% on dispatch, and moves gathers into
 `choose_possible`. Not done.
 
+## Root LP iteration counts: algorithm, perturbation, IPX (2026-10-24)
+
+The per-iteration cost of the root LP is covered above; this is the other
+lever, the number of iterations. First root LP of the MIP (presolved, one
+thread, M1), each option set on the MIP's LP relaxation only (geometric
+means of ratios against the default: iterations, root LP time):
+
+| Group | default: iterations, root s | primal simplex | no cost perturbation | perturbation x0.5 | perturbation x2 | IPX + crossover (time) |
+|---|---|---|---|---|---|---|
+| dispatch noramp (14) | 9551, 0.32 | 1.69, 2.35 | 1.03, 1.01 | 1.02, 1.03 | 0.99, 1.00 | 2.57 |
+| dispatch ramp (5) | 17898, 2.85 | 1.82, 2.38 | 1.14, 1.03 | 0.98, 0.90 | 0.93, 0.88 | 0.67 |
+| lambda ticks (3) | 15482, 1.76 | 1.98, 1.55 | 0.99, 0.97 | 1.00, 1.01 | 1.06, 1.08 | 0.77 |
+| hard_10-03, diverse_10-01 | 12497, 1.08 | 2.41, 2.40 | 1.00, 0.97 | 0.97, 0.92 | 1.01, 1.09 | 1.61 |
+| MIPLIB, PRICE-heavy (11) | 19002, 2.57 | 1.12, 1.48 | 1.82, 2.35 | 1.12, 1.21 | 0.92, 0.90 | 0.49 |
+| buildingenergy | 252109, 66.8 | 0.77, 5.81 | 1.33, 1.12 | 1.00, 0.90 | 1.01, 1.26 | over 600 s |
+
+- No setting takes 10% off the dispatch roots without a loss elsewhere:
+  perturbation x0.5 is 0.90 on the ramp models and buildingenergy but 1.21
+  on MIPLIB; x2 is 0.88 on the ramp models and 0.90 on MIPLIB but 1.08 on
+  the lambda ticks and 1.26 on buildingenergy. All dispatch models: 0.99
+  either way.
+- The primal simplex takes 1.7-2.4 times the iterations on dispatch.
+- IPX with crossover: as found before (`mip_root_lp_ipx`), faster on the
+  ramp and lambda models, slower on the rest; on two threads the race
+  already picks it where it wins.
+- Crash bases: `simplex_crash_strategy` is not used by the simplex (as in
+  HiGHS, whose dual simplex starts from the slack or a given basis), and
+  the dual phase 1 has no alternative to choose. How far the slack basis
+  is from the optimum: the dual simplex takes 1.0-1.2 iterations per basic
+  structural column of the optimal basis on the noramp models and 1.4-2.4
+  on the ramp and lambda ones (2026-10-10 above), so on most dispatch
+  roots it is near the floor that a slack start allows; a crash would have
+  to guess most of the optimal structural basis to help, and the ramp and
+  lambda models, where there is room, are the ones IPX already wins.
+
+Nothing kept.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
