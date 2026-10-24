@@ -1540,6 +1540,56 @@ dm_small_windlull 1.22, dm_medium_pert_s1_ramp 1.08, neos-911970 0.94 /
 geometric mean 1.00, the spread from the changed paths. Below the 3% bar
 for a screen; not kept.
 
+## Structure-aware primal heuristics for the hard ticks: time coarsening (2026-10-25)
+
+The hard dispatch ticks are primal-limited: the improving move found by the
+long reference runs changes many binaries at once, with no feasible step in
+between. We tried two structural ideas, both as external prototypes with no
+solver changes.
+
+**Symmetry, and aggregating interchangeable units.** Symmetry detection
+finishes after the root LP, so it needs runs longer than 10 s to report.
+Every model checked has full orbitopes:
+
+- hard_10-03: 2, on 535 columns;
+- diverse_10-01: 1, on 515 columns;
+- lambda 080458: 2 orbitopes on 652 columns, plus 15 on 662;
+- the dm models: 1 each, on 560 columns (medium, small) or 1120 (full).
+
+On the hard ticks the orbitopes cover about a sixth of the binaries. A direct
+check of the column coefficients shows why: only units with no effect at a
+given period are interchangeable. The units that matter have different
+coefficients, so there is nothing to aggregate.
+
+**Time coarsening.** Restrict each time-indexed on/off binary to be constant
+over blocks of k periods, solve that model, then start the full model from its
+solution. The remaining time goes to the full model, for 180 s wall in all,
+on 1 thread. The baseline is crest's default run for 180 s. Runs were made
+three at a time on one machine.
+
+| model, seed | baseline 30 / 60 / 180 s | k=2 30 / 60 / 180 s | k=3 30 / 60 / 180 s |
+|---|---|---|---|
+| hard_10-03, 0 | -241862 / -241862 / -243940 | -240277 / -243396 / -243840 | -242376 / -242376 / -243578 |
+| hard_10-03, 1 | -244073 / -244073 / -245228 | -242926 / -242926 / -243294 | -240982 / -241436 / -242849 |
+| diverse_10-01, 0 | -242395 / -242395 / -242468 | -232647 / -232647 / -243035 | -226137 / -226137 / -242079 |
+| diverse_10-01, 1 | -240861 / -241217 / -241217 | -228911 / -240519 / -241636 | -225287 / -240519 / -241636 |
+
+Best known (2 h reference runs): hard_10-03 -248499, diverse_10-01 -248178.
+
+- The k-block phase used 40 s.
+- The restricted models are not much easier: after 120 s they were still at
+  gaps of 1.9-2.5%.
+- On the reference solutions, on/off changes fall evenly across block phases
+  (about 1/k of them at each phase), so the good schedules are not
+  block-structured.
+- Coarsening is worse than the baseline at 30 and 60 s.
+- At 180 s it wins by 0.2-0.3% on diverse_10-01 and loses by up to 0.8% on
+  hard_10-03.
+- Every run ends about 2% from the best known values, and so does the baseline.
+
+Not taken further and nothing is built in. Rolling-horizon relax-and-fix,
+from the unit commitment literature, is the closest untried relative.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
