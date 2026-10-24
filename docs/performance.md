@@ -1191,6 +1191,33 @@ gained fast0507, neos-787933, wachplan); arm64 94 -> 92, 144.2 -> 145.5 s
 result either way. A cost of about 1-2% in sgm, taken for a correct
 proof: the old proofs were stronger only because they were invalid.
 
+Trying to win the time back (2026-10-24). A count of the tiny entries on
+the losing instances (40 s each) showed the folded bound terms are
+negligible on most of them (sct2, csched008 and n2seq36q: sums below
+1e-5 over all proofs). They are large only where a tiny entry sits on a
+column with a large bound (mas76: 50 terms above 1e-7; gmu-35-40: 319;
+neos-4738912-atrato: 1777). sct2 also loses 3705 bound proofs to an
+infinite bound. Tried (commit 22254f4, branch proof-keep): a tiny entry whose
+bound term is above epsilon stays in the proof as a coefficient, so that
+conflict analysis can use its local bound; it is moved to the right-hand
+side only when the term is negligible. Still valid: traininstance6 gives
+28290 on seeds 1, 3 and 9.
+- Local runs (300 s, against main): gmu-35-40 300 -> 254 s, mas76
+  110 -> 76 s, the others unchanged.
+- Dispatch screen (run 40059374527): time 0.998 (arm64), 0.999 (x64).
+- miplib-easy (runs 40059376375 / 40059378359): x64 solved 65 -> 66, sgm
+  24.0 -> 23.0 s; arm64 66 -> 66, 24.8 -> 24.4 s.
+- Full MIPLIB against main (runs 40061091105 / 40061092772): x64 solved
+  93 -> 91, sgm 143.0 -> 142.5 s; arm64 93 -> 95, 145.2 -> 145.1 s; no
+  wrong result.
+
+Rejected: no gain over the full set. The full runs also put a number on
+the runner noise. main at 758621e should take the same paths as the fix
+run above (39990349399), yet it solved 93 rather than 90 on x64 and 93
+rather than 92 on arm64, and several instances changed time by 1.5-2x with
+the same node count. So the fix's real cost is about one or two instances
+and about 1% sgm, not the 5 the first pair showed.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
