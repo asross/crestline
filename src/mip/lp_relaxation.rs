@@ -1092,7 +1092,18 @@ impl LpRelax {
             }
             // a tiny entry still moves to the right-hand side with its
             // global bound: dropping it would strengthen the proof (by up to
-            // |val| times the bound, which can cut off feasible points)
+            // |val| times the bound, which can cut off feasible points);
+            // where that term is not negligible the entry stays
+            let tiny = !cfg!(feature = "highs_dual_proofs") && val.abs() <= m.m.small_matrix_value;
+            if tiny {
+                if let Some(t) = proof_bound_term(val, glb[i], gub[i]).filter(|t| t.abs() <= m.m.epsilon) {
+                    upper -= t;
+                    continue;
+                }
+                vals.push(val);
+                inds.push(i as i32);
+                continue;
+            }
             let mut remove = val.abs() <= feastol;
             if !remove && (glb[i] == gub[i] || m.is_continuous(i as i32)) {
                 remove = if val > 0.0 {
@@ -1179,7 +1190,16 @@ impl LpRelax {
                 continue;
             }
             // tiny entries move to the right-hand side with their global
-            // bound, as in dual_proof
+            // bound, or stay, as in dual_proof
+            if !cfg!(feature = "highs_dual_proofs") && val.abs() <= eps {
+                if let Some(t) = proof_bound_term(val, glb[iu], gub[iu]).filter(|t| t.abs() <= eps) {
+                    upper -= t;
+                    continue;
+                }
+                self.proof_vals.push(val);
+                self.proof_inds.push(i);
+                continue;
+            }
             let mut remove = val.abs() <= feastol;
             if !remove && (glb[iu] == gub[iu] || m.is_continuous(i)) {
                 remove = if val > 0.0 {
