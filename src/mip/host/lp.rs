@@ -101,7 +101,9 @@ impl LpS {
         s.set_option("random_seed", OptValue::Int(o.random_seed));
         s.set_option("primal_feasibility_tolerance", OptValue::Double(o.mip_feasibility_tolerance));
         s.set_option("dual_feasibility_tolerance", OptValue::Double(o.mip_feasibility_tolerance * 0.1));
-        s.set_option("simplex_dse_exact_init_max_rows", OptValue::Int(20000));
+        // DSE weights kept (restored, or unit weights) instead of one BTRAN
+        // per row whatever the LP's size (was: above 20000 rows)
+        s.set_option("simplex_dse_exact_init_max_rows", OptValue::Int(0));
         s.set_option("simplex_keep_random_vectors", OptValue::Bool(true));
         s.set_option("full_lp_kkt_check", OptValue::Bool(false));
         s
