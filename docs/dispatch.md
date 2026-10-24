@@ -682,6 +682,64 @@ budget of the others). The set holds the move, but finding it inside
 400 binaries needs a real search; a sub-MIP over it is close to RINS,
 which ran 20-65 s on the tree without an incumbent (see above).
 
+## Option sensitivity, and seed racing (2026-10-24)
+
+**Options, one at a time.** Tuning half: the 10 screen models plus
+`dm_full_coarse24_noramp`, `dm_full_prices_noramp` and
+`dm_medium_prices_noramp`. x64, 8 seeds, 120 s, 1% gap, against main
+(runs 40119254074 for 1 thread, 40119263372 for 2 threads). Shifted
+time ratios (shift 1 s):
+
+| Change | 1 thread | 2 threads |
+|---|---|---|
+| `mip_heuristic_run_feasibility_jump=false` | **0.981** | **0.968** |
+| `mip_lp_age_limit` 20 / 5 | 0.994 / 0.999 | 0.992 / 0.981 |
+| `mip_detect_symmetry=false` | 0.997 | 0.974 |
+| `mip_allow_cut_separation_at_nodes=false` | 0.997 | 0.980 |
+| `mip_graph_lns_deep_early=true` | 0.998 | 0.984 |
+| `mip_allow_restart=false` | 0.999 | 0.977 |
+| `mip_heuristic_effort` 0.025 / 0.1 / 0.2 | 1.001 / 1.000 / 0.999 | 0.972 / 0.988 / 0.996 |
+| RINS, RENS or root reduced cost off; `mip_pscost_minreliable` 4 / 16 | 1.000-1.001 | 0.981-0.988 |
+| `mip_heuristic_run_shifting=true` | 1.010 | 1.100 |
+| `mip_heuristic_run_zi_round=true` | 1.021 | 1.018 |
+| `mip_graph_lns_cost_perturbation=true` | 1.083 | 1.100 |
+| `mip_concurrent_helper=false` | | 1.411 |
+
+At 1 thread every option but those last few is within 0.6% of main:
+the defaults sit at a flat optimum for dispatch. At 2 threads most
+changes read about 2% better, because `diverse_10-01_0052` comes out
+10-27% faster under almost every one of them. That says main's 8 seeds
+there were an unlucky draw, not that 14 different options all help.
+
+**Feasibility jump off, held out.** The other 12 models, 16 seeds,
+180 s, both arches (runs 40129977225 for 1 thread, 40129979380 for
+2 threads): 0.968 (x64) and 0.955 (arm64) at 1 thread, 0.968 and 0.948
+at 2 threads, solved 192 -> 192 everywhere, no model worse than 1.03.
+On these models FJ never finds a solution and takes about 0.1 s of a
+1.5-2.6 s solve. On miplib-easy (run 40129981188) it is needed:
+solved 66 -> 65, sgm 24.4 -> 26.6 s (arm64) and 24.8 -> 26.9 s (x64);
+ns1116954 goes from 2 s to the limit, and markshare_4_0 and
+neos-4413714-turia are 2.5-3.2x slower. The integer share of the
+columns does not separate the two kinds of model (supportcase7 is 0.3%
+integer and needs FJ, decomp2 is all integer and is better off without
+it). So the default stays on, and the dispatch application should
+set `mip_heuristic_run_feasibility_jump=false` itself.
+
+**Seed racing.** From the full runs of 2026-10-24 (main, 25 models,
+16 seeds, 180 s), keeping the best of k independent runs (x64; arm64
+within 0.2 s):
+
+| Configuration | Cores | sgm time (s) | Solved of 25 (mean) |
+|---|---|---|---|
+| 1 thread | 1 | 7.2 | 23.19 |
+| best of 2 one-thread runs | 2 | 6.4 | 23.35 |
+| best of 4 one-thread runs | 4 | 5.8 | 23.61 |
+| 2 threads | 2 | 5.3 | 23.69 |
+| best of 2 two-thread runs | 4 | 4.8 | 23.92 |
+
+The helper thread uses a second core better than a seed race does, and
+`hard_10-03_1340` reaches 1% in none of these.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
