@@ -708,8 +708,9 @@ impl MipData {
 }
 
 /// The root cuts may be imported: always, unless deterministic, where a
-/// state of the helper taken must say they are there (not inlined: see
-/// docs/performance.md, mip_deterministic)
+/// state of the helper taken must say they are there (not inlined: inlined,
+/// it made the Xcode 15.0 linker drop a relocation's addend in
+/// evaluate_root_node, see bench/macho_reloc_check.py)
 #[inline(never)]
 fn root_cuts_taken(pool: &Pool) -> bool {
     pool.det.as_ref().is_none_or(|d| d.local[0].lock().unwrap().root_cuts)

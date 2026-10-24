@@ -53,6 +53,11 @@ file readers in parallel. IPX, PDLP and QP last.
 
 Checks cost: run the cheap ones per change, the expensive ones per batch.
 
+On macOS with the Xcode 15.0 Command Line Tools (ld 1015.7), a local build
+can be mislinked (a dropped relocation addend): check one with
+`bench/macho_reloc_check.py` before trusting a local result, or update the
+Command Line Tools.
+
 - **Every change (~3 min):** build, then `bench/quick_check.sh
   <C++ build> <Rust build> [<crest binary>]`: cargo test, LP logs on 12
   instances (presolve on/off), 9 MIPs at 200 nodes, api_compare,

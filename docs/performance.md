@@ -1185,16 +1185,21 @@ geometric mean of the time ratios of runs both solve):
 Solved: 67 -> 67 (both arches) for the first row. Runs 39970299772 and
 39985883614.
 
-**A layout-sensitive crash found on the way.** With the deterministic
-check inlined into import_root_cuts, the stable LTO build (rustc 1.98.1
-and 1.99.1, arm64) crashed in the helper's evaluate_root_node (the
-register holding the C++ function table pointer clobbered after the
-separation round's calls) even with the option off; the same source
-built without LTO, with nightly, with AddressSanitizer or with debug
-assertions ran clean, and main does not crash. Moving the check into a
-non-inlined function (root_cuts_taken) avoids it. A latent miscompile or
-undefined behaviour in evaluate_root_node (e.g. the LP borrowed across
-FFI calls that change it) is a candidate; not found yet.
+**A crash found on the way: a linker bug, not undefined behaviour.** With
+the deterministic check inlined into import_root_cuts, the macOS release
+build crashed at the root (every MIP, even egout on one thread with the
+option off) in evaluate_root_node: the load of the C++ function table
+pointer read address 0x10032d000 instead of 0x10032d018. The LTO object is
+right (`ldr x8, [x21, pageoff(__MergedGlobals + 0x18)]`, an
+ARM64_RELOC_PAGEOFF12 with ARM64_RELOC_ADDEND 0x18); the linked instruction
+has offset 0: ld-prime of the Xcode 15.0 Command Line Tools (ld 1015.7,
+installed here) dropped the addend. Linked with `-Wl,-ld_classic` the
+same object runs; so do builds without LTO, with nightly, under
+AddressSanitizer and with debug assertions (other code layouts).
+`bench/macho_reloc_check.py` checks every such relocation of a build: 1
+mismatch in that build, 0 in main. Linux (CI, runners) is not affected.
+The check stays in a non-inlined function (root_cuts_taken); the fix is
+newer Command Line Tools (26.x are available here).
 
 **Why it costs: a stale clock in root separation.** The main solver's
 clock barely moves during root separation (few LP iterations per round,
