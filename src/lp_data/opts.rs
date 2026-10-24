@@ -137,6 +137,20 @@ macro_rules! opt_get {
     (string, $f:expr) => { OptValue::Str(&$f) };
 }
 
+/// With CRESTLINE_HIGHS_PATHS in the environment (the oracle checks,
+/// bench/quick_check.sh), the default of an option of Crestline's own that
+/// changes the C++ HiGHS's paths is the C++'s behaviour: the C++ has no
+/// such option to set on its command lines
+pub fn highs_paths_int_default(name: &str) -> Option<i32> {
+    if std::env::var_os("CRESTLINE_HIGHS_PATHS").is_none() {
+        return None;
+    }
+    match name {
+        "mip_lp_dse_exact_init_max_rows" => Some(20000),
+        _ => None,
+    }
+}
+
 macro_rules! options {
     ($($name:ident: $kind:ident = $default:expr;)*) => {
         /// HighsOptions' values (see the module comment)
@@ -152,8 +166,8 @@ macro_rules! options {
                 let mut o = Opts { $($name: opt_val!($kind, $default),)* };
                 // the C++ HiGHS's paths where Crestline's default differs
                 // and the C++ has no option (the oracle checks set it)
-                if std::env::var_os("CRESTLINE_HIGHS_PATHS").is_some() {
-                    o.mip_lp_dse_exact_init_max_rows = 20000;
+                if let Some(v) = highs_paths_int_default("mip_lp_dse_exact_init_max_rows") {
+                    o.mip_lp_dse_exact_init_max_rows = v;
                 }
                 o
             }

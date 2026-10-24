@@ -207,7 +207,7 @@ fn records(opts: &mut Opts) -> Vec<COptionRecord> {
             str_default: RsStr::of(m.str_default.as_bytes()),
             bool_default: m.bool_default,
             int_lower: m.int.0,
-            int_default: m.int.1,
+            int_default: crate::lp_data::opts::highs_paths_int_default(m.name).unwrap_or(m.int.1),
             int_upper: m.int.2,
             dbl_lower: m.dbl.0,
             dbl_default: m.dbl.1,
