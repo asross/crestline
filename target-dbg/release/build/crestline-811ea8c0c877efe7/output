@@ -1,0 +1,1 @@
+cargo:rustc-env=CREST_GITHASH=778c9db

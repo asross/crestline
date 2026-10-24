@@ -1281,6 +1281,37 @@ gained fast0507, neos-787933, wachplan); arm64 94 -> 92, 144.2 -> 145.5 s
 result either way. A cost of about 1-2% in sgm, taken for a correct
 proof: the old proofs were stronger only because they were invalid.
 
+## Where the time goes outside the simplex (2026-10-24)
+
+Main 778c9db, one thread, `mip_rel_gap = 0.01`, 120 s, M1, macOS
+`sample` at 1 ms (self time by function, grouped by module; inlined code
+counts where it was inlined):
+
+| share of samples | hard_10-03 | diverse_10-01 | hard tick (142050) | dm_full_pert_s1_ramp | lambda 080458 |
+|---|---|---|---|---|---|
+| simplex: factor solves and updates | 34.4% | 49.1% | 47.2% | 60.3% | 57.7% |
+| simplex: iterations (pricing, CHUZR, updates) | 26.5% | 28.5% | 24.2% | 30.9% | 39.6% |
+| propagation (domain, objective, conflicts) | 17.8% | 3.8% | 1.2% | 0.2% | 0 |
+| simplex solve setup/teardown (KKT check, unscaled infeasibilities, basis and solution copies, LP import) | 9.5% | 6.3% | 6.7% | 2.3% | 0.2% |
+| cut separation (transform, path, cMIR) | 5.6% | 6.6% | 13.9% | 0.8% | 0 |
+| memmove/memset (LP import, domain copies, put/get iterate) | 4.1% | 3.2% | 3.6% | 2.7% | 1.6% |
+| LP relaxation glue, heuristics, graph LNS bookkeeping, cut pool, conflict pool, node queue, clique table, symmetry, presolve | < 1.5% together | < 1% | < 1.5% | < 1% | < 0.3% |
+
+Graph LNS includes 72% of hard_10-03's samples (its sub-LP solves and the
+propagation of its neighbourhoods). The pure overhead outside the simplex
+is spread thin: per LP solve the KKT check (2-3%), the unscaled
+infeasibilities (1-1.5%), the basis and solution copies (1.2-1.6%) and the
+incumbent LP's copy into the simplex (Lp::import, 0.8%), each an O(rows +
+columns) pass that a short graph-LNS re-solve pays in full. Tried: not
+zero-filling the solution and basis vectors before they are overwritten
+(same paths, 0.9990-0.9999 of the instructions on six models: within
+noise, not kept). Not done (path-preserving but each about 1%): skipping
+Lp::import of an unchanged matrix (needs a model version kept by every
+edit), fusing the four post-solve passes (they sit in three layers).
+Propagation (do_change_bound, propagate_row_cap) and separation
+(path.rs's per-column loads, transform) are the work itself, already
+tuned in earlier passes.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
