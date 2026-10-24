@@ -1499,6 +1499,47 @@ Experiments (paths change):
   1 and 2 it goes both ways: ns1208400 20.6 -> 33.6 s and 28.3 -> 17.9 s,
   swath3 69.2 -> 59.6 s and 55.2 -> 69.0 s.
 
+## Simplex rebuilds: the exact primal and dual recompute (2026-10-25)
+
+Where compute_primal and compute_dual run in the MIP's LP solves (samply,
+1 thread, 120 s; share of all samples, by caller):
+
+| | hard_10-03 | diverse_10-01 | hard tick | dm_full_pert_s1_ramp | lambda 080458 |
+|---|---|---|---|---|---|
+| primal at the start of a solve (initialise_for_solve) | 5.1% | 3.9% | 4.0% | 1.2% | 0.2% |
+| primal in rebuilds | 4.0 | 3.4 | 2.7 | 1.0 | 0.8 |
+| dual in rebuilds | 3.6 | 3.1 | 2.7 | 1.0 | 0.7 |
+| dual at the start of a solve | 2.3 | 0.6 | 0.4 | 0.2 | 0.03 |
+| at the end of a solve (return_from_solve: objective bound, limits) | 0.2 | 0.6 | 0.8 | 0.02 | 0 |
+
+Why the rebuilds happen (hard_10-03, 60 s, 14000 rebuilds): 7599 are the
+first rebuild of a solve, which already reuses the set-up's fresh values
+(no recompute); 3397 confirm optimality (CHUZR found no infeasible row)
+and 2933 a possibly dual-unbounded LP (an infeasible graph-LNS LP); 67
+follow a refactorization on the synthetic clock, 1 the update limit, 3
+other reasons. The set-up recomputes the primal values after every
+bound change (the graph LNS fixings) and the dual values unless basis and
+costs are unchanged (kept already, by hash).
+
+Path-preserving angles: none of size. What each recompute depends on has
+changed when it runs (bounds at the set-up; the basis since the last
+exact values in the confirming rebuilds), the dual values are already
+skipped when basis and costs hash equal, the first rebuild already reuses
+the set-up's values, and the end-of-solve recompute after an objective
+bound is 0.2-0.8%. The dense rhs (collect_aj over the nonbasic columns)
+and the full PRICE of compute_dual keep their order.
+
+Tried (changes values, so paths): the primal values at a solve's start
+updated from the previous solve's (same basis) by one FTRAN of the
+columns whose nonbasic value changed, instead of the exact recompute (the
+solve's confirming rebuild still recomputes exactly). Instructions to
+finish, 1 thread: hard tick 0.87, dm_full_pert_s1_ramp 0.96, lambda
+080458 1.00, dm_small_pert_s1_ramp 1.82, dm_medium_randsoc 0.92,
+dm_small_windlull 1.22, dm_medium_pert_s1_ramp 1.08, neos-911970 0.94 /
+1.00, pk1 0.76, air05 1.00, neos17 0.74, nu25-pr12 1.08, mzzv11 1.00:
+geometric mean 1.00, the spread from the changed paths. Below the 3% bar
+for a screen; not kept.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
