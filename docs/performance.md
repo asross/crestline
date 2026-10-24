@@ -1350,6 +1350,50 @@ Tried, not kept:
   (23713 -> 26956, 20012 -> 21553, 19720 -> 22511) and 21-34% more cycles;
   the division is not the cost it looks.
 
+## PRICE and CHUZC on the root LP: profile, x86_64, switch rules (2026-10-24)
+
+**x86_64 profile** (`perf record`, GitHub `ubuntu-24.04` runner, AMD EPYC
+9V45, whole run to the end of the root LP, so presolve and the root
+heuristics are included). Dispatch: the factor solves first, as on the M1
+(lambda_080458: bitmap solves 14%, `Dual::iterate` 13%, dense FTRAN 10%,
+row PRICE 9%; dm_full_pert_s1_ramp: dense FTRAN 16%, `iterate` 12%, bitmap
+11%, row PRICE 10%). MIPLIB: `Dual::iterate` is much larger than on the
+M1 (dano3_3 29%, rail507 29%, neos-957323 25%, qap10 19%), then row PRICE
+(18% on dano3_3, rail507 and neos-957323) and column PRICE (air04 6%,
+qap10 8%).
+
+**What `Dual::iterate` holds** (M1, the CHUZC helpers out of line, same
+paths): CHUZC and the dual update over the packed row. On rail507:
+row PRICE 40%, `choose_possible` 16%, `update_dual` 10%, `choose_makepack`
+8%, `choose_final` 7%; neos-957323: PRICE 33%, `choose_possible` 21%,
+`choose_final` 12%, `choose_makepack` 10%; dano3_3: PRICE 21%,
+`choose_possible` 8%, makepack and `update_dual` 4% each. So on these LPs
+(few rows, long rows: set covering and partitioning) an iteration is one
+dense pass after another over row_ap: PRICE, pack, candidates, dual
+update.
+
+**Row-wise matrix and nonbasic columns.** The row-wise copy is already
+partitioned into nonbasic and basic columns (HiGHS's `ar_p_end`), so
+row PRICE touches only nonbasic entries; keeping it partitioned
+(`update_matrix`) is 0.7%. Column PRICE (row_ep density above 0.75)
+computes the basic columns too and then zeroes them, but skipping them
+would change row_ap's count and so the density estimates and the path,
+and basic columns are at most num_row of many more (air04: 823 of 8904).
+
+**Tried, no gain (M1 instructions, root LPs, paths unchanged unless
+noted):**
+- Row PRICE's new-nonzero index stored by a select: 1.000 on eight
+  PRICE-heavy roots (LLVM already does this).
+- Column PRICE from row_ep density 0.95 instead of 0.75: MIPLIB 0.996,
+  dispatch 1.000; from 0.5: MIPLIB 1.015 (rail507 1.13, dano3_3 1.10).
+- Hyper-sparse row PRICE threshold 0.05 or 0.2 instead of 0.1: within
+  0.997-1.005.
+
+What is left is the four passes over row_ap. Fusing the pack copy into
+PRICE and CHUZC (no pack arrays) is bounded by `choose_makepack`'s 4-10%
+on these MIPLIB roots and about 1% on dispatch, and moves gathers into
+`choose_possible`. Not done.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline
