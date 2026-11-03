@@ -260,6 +260,8 @@ pub struct Dual<'a> {
     computed_edge_weight: f64,
     num_devex_iterations: i32,
     new_devex_framework: bool,
+    /// The density switch to Devex was declined (dense column FTRANs)
+    density_switch_declined: bool,
     /// analysis_.num_correct_dual_primal_flip, for the rebuild
     num_correct_dual_primal_flip: i32,
     /// The last factor solve error, with the iteration count, update count,
@@ -337,6 +339,7 @@ impl<'a> Dual<'a> {
             computed_edge_weight: 0.0,
             num_devex_iterations: 0,
             new_devex_framework: false,
+            density_switch_declined: false,
             num_correct_dual_primal_flip: 0,
             solve_error: None,
             lp_dual_infeasibility: Infeasibility::default(),
@@ -1357,9 +1360,19 @@ impl<'a> Dual<'a> {
         // Crestline: on the density of the DSE FTRAN alone. Where B^-1 is
         // dense (equality chains of dispatch models), every solve is
         // dense, so the relative test below does not fire, but the DSE
-        // FTRAN (on a dense row of B^-1) is the dearest of them
-        if x.allow_dual_steepest_edge_to_devex_switch && row_dse_density > x.dse_to_devex_density {
-            return true;
+        // FTRAN (on a dense row of B^-1) is the dearest of them. Decided
+        // once, when the density first passes the threshold: declined
+        // where the column FTRAN is dense too (over a quarter of the DSE
+        // FTRAN's density), as Devex then saves less per iteration than
+        // it adds in iterations (triptim1: twice the root LP iterations)
+        if x.allow_dual_steepest_edge_to_devex_switch
+            && !self.density_switch_declined
+            && row_dse_density > x.dse_to_devex_density
+        {
+            if 4.0 * *self.e.col_aq_density < row_dse_density {
+                return true;
+            }
+            self.density_switch_declined = true;
         }
         let costly_dse_measure_denominator =
             std_max(std_max(*self.e.row_ep_density, *self.e.col_aq_density), *self.e.row_ap_density);
