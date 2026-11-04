@@ -1245,7 +1245,8 @@ impl<'a> Dual<'a> {
         // while the primal infeasibilities grow (to 1e10); which seeds
         // escape is luck. After twice as many iterations as rows without
         // 0.1% progress, the costs are perturbed again, ten times as much
-        if self.solve_phase == PHASE_2 && self.stall_state == 0 && *self.e.costs_perturbed {
+        // (not in the HiGHS 1.15.1 build of the CI oracle)
+        if !crate::mip::domain::HIGHS_1_15 && self.solve_phase == PHASE_2 && self.stall_state == 0 && *self.e.costs_perturbed {
             let dual_objective = *self.e.dual_objective_value;
             let iteration = x.iteration_count.get();
             if dual_objective > self.stall_dual_objective + 1e-3 * std_max(1.0, self.stall_dual_objective.abs()) {

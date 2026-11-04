@@ -32,6 +32,7 @@ hyper_dfs = []
 # HiGHS 1.15.1's dual proofs and activity sums (for the CI oracle) instead
 # of HiGHS PR #3223: proofs drop coefficients below epsilon outright, which
 # can make them invalid (docs/upstream.md, traininstance6)
+# (also: no second cost perturbation on a dual simplex stall)
 highs_dual_proofs = []
 # The Rust Highs object, its model file reading (gzip) and the crest binary
 crest = ["dep:flate2"]
