@@ -12,8 +12,8 @@
 #   PROGRAM    `PROGRAM MODEL.mps` exits 0
 # Both solvers get OPTIONS_FILE (default threads = 1, random_seed = 0,
 # mip_max_nodes = 1000: deterministic, unlike a time limit), crest also
-# mip_graph_lns_cost_perturbation = true so that it follows the C++ app's
-# paths. Environment: CREST_BIN (default
+# mip_graph_lns_cost_perturbation = true and mip_lp_scaling = true so that
+# it follows the C++ app's paths. Environment: CREST_BIN (default
 # target/release/crest), HIGHS_BIN (the C++ app, needed for diff), MIPDD
 # (a MIP-DD binary; built from MIPDD_SRC, default ~/.cache/mipdd, when
 # missing; needs boost and tbb). Writes INSTANCE_min.mps in the working
@@ -77,7 +77,7 @@ work=$(mktemp -d)
 name=$(basename "$inst"); name=${name%.gz}; name=${name%.*}
 case $inst in *.gz) gunzip -c "$inst";; *) cat "$inst";; esac > "$work/$name.mps"
 if [ -n "$opts" ]; then cp "$opts" "$work/opts"; else printf 'threads = 1\nrandom_seed = 0\nmip_max_nodes = 1000\n' > "$work/opts"; fi
-{ cat "$work/opts"; echo "mip_graph_lns_cost_perturbation = true"; } > "$work/opts.crest"
+{ cat "$work/opts"; echo "mip_graph_lns_cost_perturbation = true"; echo "mip_lp_scaling = true"; } > "$work/opts.crest"
 test=("$0" --test "$pred" "$work/opts")
 "${test[@]}" "$work/$name.mps" || { echo "the predicate does not hold on $inst"; exit 1; }
 

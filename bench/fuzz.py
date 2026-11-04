@@ -71,7 +71,7 @@ chromaticindex32-8 assign1-5-8 control20-5-10-5 control30-3-2-3 binkar10_1 pg5_3
 # crest's option variants, one per model besides the default; the last is the C++ app's paths
 VARIANTS = ['presolve=off', 'random_seed=1', 'random_seed=7', 'threads=2', 'mip_detect_symmetry=false',
             'presolve=off random_seed=3',
-            'mip_graph_lns_cost_perturbation=true mip_root_lp_devex_density=inf mip_symmetry_static_orbitopes=false']
+            'mip_graph_lns_cost_perturbation=true mip_root_lp_devex_density=inf mip_symmetry_static_orbitopes=false mip_lp_scaling=true']
 TL = dict(random=20, check=60, miplib=60, dispatch=90)
 GAP = dict(random=0, check=0, miplib=1e-6, dispatch=1e-6)
 NOSOL = ('infeasible', 'unbounded', 'infeasible_or_unbounded')
