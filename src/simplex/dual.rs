@@ -260,6 +260,12 @@ pub struct Dual<'a> {
     computed_edge_weight: f64,
     num_devex_iterations: i32,
     new_devex_framework: bool,
+    /// Phase 2 stall detection: the best dual objective (up to 0.1%), the
+    /// iteration it was reached, and 0 (watching), 1 (re-perturb at the
+    /// next rebuild) or 2 (done)
+    stall_dual_objective: f64,
+    stall_iteration: i32,
+    stall_state: i32,
     /// analysis_.num_correct_dual_primal_flip, for the rebuild
     num_correct_dual_primal_flip: i32,
     /// The last factor solve error, with the iteration count, update count,
@@ -337,6 +343,9 @@ impl<'a> Dual<'a> {
             computed_edge_weight: 0.0,
             num_devex_iterations: 0,
             new_devex_framework: false,
+            stall_dual_objective: -INF,
+            stall_iteration: 0,
+            stall_state: 0,
             num_correct_dual_primal_flip: 0,
             solve_error: None,
             lp_dual_infeasibility: Infeasibility::default(),
@@ -1187,7 +1196,16 @@ impl<'a> Dual<'a> {
         // refactorization, the dual values are fresh and, unless
         // correcting dual infeasibilities flips bounds, so are the primal
         // values
-        let use_fresh = self.solve_phase == PHASE_2 && !refactor_basis_matrix;
+        let mut use_fresh = self.solve_phase == PHASE_2 && !refactor_basis_matrix;
+        if self.stall_state == 1 {
+            // Crestline: re-perturb the costs ten times as much, once
+            self.stall_state = 2;
+            let multiplier = *self.e.dual_simplex_cost_perturbation_multiplier;
+            *self.e.dual_simplex_cost_perturbation_multiplier = 10.0 * multiplier;
+            self.initialise_cost(true);
+            *self.e.dual_simplex_cost_perturbation_multiplier = multiplier;
+            use_fresh = false;
+        }
         let fresh_primal = use_fresh && x.fresh_primal.get();
         if !(use_fresh && x.fresh_dual.get()) {
             self.compute_dual();
@@ -1221,6 +1239,22 @@ impl<'a> Dual<'a> {
         // Now that there's a new dual_objective_value, reset the updated
         // value
         *self.e.updated_dual_objective_value = *self.e.dual_objective_value;
+        // Crestline: a dual degenerate stall. Where nearly every dual step
+        // is zero (supportcase12's relaxation: 88% of 409k iterations)
+        // the dual objective crawls for many times the number of rows
+        // while the primal infeasibilities grow (to 1e10); which seeds
+        // escape is luck. After twice as many iterations as rows without
+        // 0.1% progress, the costs are perturbed again, ten times as much
+        if self.solve_phase == PHASE_2 && self.stall_state == 0 && *self.e.costs_perturbed {
+            let dual_objective = *self.e.dual_objective_value;
+            let iteration = x.iteration_count.get();
+            if dual_objective > self.stall_dual_objective + 1e-3 * std_max(1.0, self.stall_dual_objective.abs()) {
+                self.stall_dual_objective = dual_objective;
+                self.stall_iteration = iteration;
+            } else if iteration - self.stall_iteration > 2 * self.num_row as i32 {
+                self.stall_state = 1;
+            }
+        }
         // The infeasibilities are only reported: without output (the MIP's
         // LPs) nothing reads them before they are reset below
         if !x.run_quiet && x.output_flag {
