@@ -1856,6 +1856,11 @@ unsafe fn setup_op(ms: &mut MipSolver, which: i32, _w: P, i: i64, _x: f64) -> f6
             d.symmetries = std::mem::take(&mut sd.symmetries);
             return sd.detection_time;
         }
+        338 => {
+            let ctx = d.root.as_mut().unwrap();
+            ctx.tg.sync();
+            return ctx.sym_data.as_ref().unwrap().symmetries.orbitopes.len() as f64;
+        }
         328 => {
             let s = &d.symmetries;
             return match i {

@@ -102,6 +102,9 @@ pub mod op {
     /// the callback's output cleared and its cut pool fields set from the
     /// LP relaxation's cuts
     pub const CUT_POOL_OUTPUT: i32 = 337;
+    /// the symmetry detection task synced, its symmetries left in place:
+    /// the number of orbitopes found
+    pub const SYM_PEEK_ORBITOPES: i32 = 338;
 }
 
 /// HighsMipSolverData's vectors read through CMipFns::vec_ptr

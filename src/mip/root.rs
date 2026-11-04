@@ -347,9 +347,11 @@ impl MipData {
                 }
             }
             // the symmetries before the root cuts and heuristics: the static
-            // orbitope fixings then apply to the whole root
+            // orbitope fixings then apply to the whole root (only if there
+            // are orbitopes: other symmetries are used at the usual place,
+            // so the root takes HiGHS's path)
             let mut symmetries_finished = false;
-            if self.sc().detect_symmetries && early_symmetries {
+            if self.sc().detect_symmetries && early_symmetries && self.o(super::setup::op::SYM_PEEK_ORBITOPES) != 0.0 {
                 self.finish_symmetry_detection();
                 symmetries_finished = true;
                 status = self.eval_root_lp_timed(w);
