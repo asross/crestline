@@ -723,9 +723,16 @@ impl MipData {
                 }
                 if o.run_rens {
                     self.start(clk::ROOT_HEURISTICS_RENS);
+                    let ub0 = self.sc().upper_bound;
                     self.heur(w, heur::RENS_ROOT);
                     self.stop(clk::ROOT_HEURISTICS_RENS);
                     self.heur(w, heur::FLUSH);
+                    // experiment: a second RENS when the first improved
+                    // the incumbent without closing the gap
+                    if !self.submip && self.sc().upper_bound < ub0 && !root_gap_closed(self) && self.more_heuristics_allowed() {
+                        self.heur(w, heur::RENS_ROOT);
+                        self.heur(w, heur::FLUSH);
+                    }
                 }
                 if self.check_limits_rs(0) {
                     return self.clock_off_done();
