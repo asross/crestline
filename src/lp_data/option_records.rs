@@ -914,7 +914,7 @@ pub const RECORDS: &[Meta] = &[
         type_: BOOL,
         advanced: false,
         name: "mip_lp_scaling",
-        description: "Whether the MIP's LP relaxation is solved scaled (simplex_scale_strategy choose, as in HiGHS) rather than unscaled",
+        description: "Whether the LP relaxation of a MIP of at least 10000 rows is solved scaled (simplex_scale_strategy choose, as in HiGHS) rather than unscaled; smaller MIPs are always scaled",
         bool_default: false,
         int: (0, 0, 0),
         dbl: (0.0, 0.0, 0.0),
