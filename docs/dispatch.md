@@ -96,6 +96,15 @@ non-deterministic:
   integer columns where they agree are fixed and the rest solved as a
   sub-MIP.
 
+The helper starts its root LP from the main solver's basis, so its own
+first root LP count is about 0; it takes the main solver's count instead,
+since the LNS LP iteration limits and the deep-search and flip budgets scale
+with it. Before (2026-11-20) a helper on a model whose root LP takes ~11k
+iterations ran every neighbourhood LP at the 1000-iteration floor, where
+they all stopped, and found nothing in 180 s; on a gas-boiler dispatch
+model at 2 threads, 1% gap, 180 s this took the runs reaching the gap from
+1 of 8 seeds to 5 of 8.
+
 The time limit reaches every solver of the solve: a sub-MIP (at any depth,
 in the main solver or a helper) gets the smaller of its own budget and its
 parent's remaining time, and a helper the time left when it starts. When
@@ -928,6 +937,10 @@ threads worse; the solved counts fall and t1 does not move: no gain.
 - `mip_concurrent_crossover` on two threads: 1.12x the time on the solved
   dispatch models.
 - Time-window neighbourhoods, free or pinned (see above).
+- BFS edges from each decision column that shares no row with another
+  integer column (on/off columns linked only through continuous flows) to
+  its nearest decision columns: 0 of 6 seeds of the gas-boiler model
+  reached 1% (1 of 6 before).
 - A bandit over the LNS LPs' cost perturbation (see above).
 - Time-ordered fix-propagate with backtracking at the root (see above).
 - Storage valid inequalities as root cuts (measured; see above).

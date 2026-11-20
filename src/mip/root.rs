@@ -329,6 +329,17 @@ impl MipData {
                     sc.root_lp_credit = effort - sc.firstrootlpiters;
                     sc.firstrootlpiters = effort;
                 }
+                // a helper solved the main solver's root LP from its
+                // basis: the budgets and LP iteration limits that scale
+                // with the root LP count the main solver's (with 1000
+                // iterations per LP the helper's neighbourhood LPs hit
+                // the limit on models whose root LP takes ~10k)
+                if let Some(p) = self.helper_lns() {
+                    if p.firstrootlpiters > sc.firstrootlpiters {
+                        sc.root_lp_credit += p.firstrootlpiters - sc.firstrootlpiters;
+                        sc.firstrootlpiters = p.firstrootlpiters;
+                    }
+                }
             }
             self.o(op::LP_AFTER_FIRST_SOLVE);
             if status == lp_status::INFEASIBLE || status == lp_status::UNBOUNDED {

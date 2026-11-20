@@ -219,6 +219,9 @@ pub struct Pool {
     pub run_rins: bool,
     pub run_rens: bool,
     pub run_root_reduced_cost: bool,
+    /// the main solver's first root LP iterations: the helper starts from
+    /// its basis, so its own count is about 0
+    pub firstrootlpiters: i64,
     /// the number of helpers (see start_concurrent_lns)
     helpers: usize,
     /// the crossover, for the main solver's log: 1 running, 2 done (then
@@ -389,6 +392,7 @@ impl MipData {
             run_rins: self.opts.run_rins,
             run_rens: self.opts.run_rens,
             run_root_reduced_cost: self.opts.run_root_reduced_cost,
+            firstrootlpiters: self.sc().firstrootlpiters,
             helpers,
             crossover_state: AtomicI32::new(0),
         });
