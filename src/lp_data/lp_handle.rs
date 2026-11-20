@@ -2409,12 +2409,16 @@ impl LpHandle {
     /// helper thread; the first to finish stops the other. If IPX wins,
     /// the dual simplex goes on from its basis, and its iterations so far
     /// are added to `extra_iterations`. Returns the status and whether IPX
-    /// won.
+    /// won. If the dual simplex wins, the helper's own `stop` (2) ends both
+    /// its IPX and the simplex that cleans up after crossover: the shared
+    /// flag's 1 stops no simplex, and the join waited out the time limit.
     pub fn optimize_racing_ipx(&mut self, seed: i32, extra_iterations: &mut i64) -> (Status, bool) {
         let winner = std::sync::Arc::new(AtomicI32::new(0));
+        let stop = std::sync::Arc::new(AtomicI32::new(0));
         let lp = self.model.clone();
         let time_limit = self.opts.time_limit;
         let w = std::sync::Arc::clone(&winner);
+        let st = std::sync::Arc::clone(&stop);
         let helper = std::thread::Builder::new()
             .stack_size(8 << 20)
             .spawn(move || {
@@ -2427,7 +2431,7 @@ impl LpHandle {
                 ipx.set_option("time_limit", OptValue::Double(time_limit));
                 ipx.set_option("random_seed", OptValue::Int(seed));
                 ipx.pass_model(lp);
-                ipx.interrupt = Some(Interrupt { flag: &*w, simplex: false, ipm: true });
+                ipx.interrupt = Some(Interrupt { flag: &*st, simplex: true, ipm: true });
                 let mut basis = None;
                 if ipx.run_lp() == Status::Ok
                     && ipx.model_status() == super::run::MS_OPTIMAL
@@ -2446,6 +2450,7 @@ impl LpHandle {
         let ipx_won = self.model_status() == super::run::MS_INTERRUPT;
         if !ipx_won {
             let _ = winner.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst);
+            stop.store(2, Ordering::SeqCst);
         }
         let basis = helper.join().expect("the IPX race's helper");
         if !ipx_won {
