@@ -914,6 +914,70 @@ is solved by base; `b2` reaches 1% of the best known on `tick_1018_0340`
 `b2` 15. The time ratio on solved runs at 1 thread is better, at 2
 threads worse; the solved counts fall and t1 does not move: no gain.
 
+## The path separator's work limit at the root (2026-11-21)
+
+**The case.** A gas-boiler dispatch model (an unserved-steam slack
+at a high price, the boilers held off) ends at
+180 s, 2 threads, with a gap of 16-28%. CPLEX (4 threads) is at 8.5%
+after 300 s; neither reaches 2%. The incumbents agree (crest and CPLEX
+within 0.3% of each other after 300 s), the bounds do not: crest's root
+bound is 2.4% of the objective weaker than CPLEX's after its root cuts,
+and the tree moves it by 0.3% in 180 s.
+
+**Diagnosis.** The root LP bounds agree. CPLEX's root cuts move the
+bound by 3.7% of the objective (mostly MIR, then flow, cover, zero-half
+and Gomory cuts); SCIP's root (22 rounds, one thread, 410 s) by 5.3%
+(mostly c-MIR, Gomory and flow cover); crest's by 1.5%. Crest's path separator
+(c-MIR on aggregated paths) has a work limit (60 aggregated row entries
+per LP nonzero, for the heater-HTF models' dense rows), and stopping at it
+switched the separator off for good. On this model a full call passes
+250 entries per nonzero (dense balance rows, 3-4 s a call), so the
+separator stopped in the first round, a seventh of the way through the
+rows; the other root rounds found 1-12 cuts each. Without the limit the
+root bound ends 2.8% of the objective stronger (0.5% past CPLEX's root),
+but the root takes 147 s.
+
+**The change.** A call that stops at the limit records the row it stopped
+at, and at the root, while the gap to the incumbent is over three target
+gaps, the next call continues from there (so every row is visited over a
+few rounds, each call at the limit's cost). In the tree, or once the gap
+is narrower, or with no incumbent yet, the separator stays off as before.
+Models whose calls stay under the limit (the dispatch suite: at most 41
+per nonzero) take the same path as before.
+
+**Screen** (M3 Pro, shared and loaded, so noisy; 2 threads, 1% gap,
+180 s, seeds 0-3, base and candidate interleaved; times in s, TL = time
+limit with the gap):
+
+| model | base | candidate |
+|---|---|---|
+| gas boilers off, high price: gap | 25.2 / 15.7 / 25.6 / 28.2% | 22.4 / 11.9 / 13.4 / 24.2% |
+| ... dual bound at 180 s, change | | 3-4% of the objective stronger |
+| gas boilers free, high price | 161 / 92 / 115 / 135 | TL(1.04%) / 104 / 96 / 135 |
+| gas boilers off, lower price | 101 / 53 / 125 / 128 | 113 / 51 / 125 / 166 |
+| gas boilers free, lower price | 33 / 89 / 68 / 39 | 32 / 90 / 68 / 65 |
+| heater-HTF ticks (4): shifted geometric mean ratio | | 0.918, 0.883, 1.000, 1.226 |
+
+On the twins and the heater-HTF ticks the gate stays shut, so the
+differences there are timing noise (same paths). The 180 s bound on the
+high-price model is close to CPLEX's 300 s bound and SCIP's root (within
+1% of the objective); 1% stays out of reach: a 40 min run ends at 7%, with the incumbent
+still improving and the bound flat.
+
+**Variants rejected on the way** (same screen, against base):
+- Continuing past the limit at every root round (no gap gate): heater-HTF
+  ticks 1.9-2.5 times slower on three of four (one of them 0 of 4 solved
+  against 4), the slow
+  extra rounds holding back the incumbent; the gas models gain (boilers
+  free, high price: 4 of 4 solved against 2, 0.80).
+- Continuing while each sweep over the rows raises the bound by a quarter,
+  or half, of the target gap, and with no incumbent: heater-HTF 1.4-2.3
+  times slower (the first sweeps there pass the test); boilers free, high
+  price 0.29-0.60, the lower-price twins 0.24-0.97.
+- The gap gate open when there is no incumbent yet: heater-HTF 1.2-1.7
+  times slower (the first two or three rounds run before the first
+  incumbent); boilers free, high price 0.60.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -960,3 +1024,7 @@ threads worse; the solved counts fall and t1 does not move: no gain.
   the bound does not move and the incumbents get 4-8% worse (see above).
 - Seeding neighbourhoods by reduced-cost gain summed over short-row
   chains (see above): fewer solved runs, no 2-thread gain.
+- The path separator past its work limit at every root round, or while
+  each sweep over the rows gains a share of the target gap, or with no
+  incumbent: the heater-HTF ticks 1.2-2.5 times slower (see "The path
+  separator's work limit at the root").

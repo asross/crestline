@@ -97,7 +97,7 @@ impl SepaS {
     }
 
     /// The separators' runs on a transformed LP (HighsSeparator::run each)
-    fn run_separators(&mut self, lp: &LpS, round: &mut Round, cutpool: &CutPoolS) -> bool {
+    fn run_separators(&mut self, lp: &LpS, round: &mut Round, cutpool: &CutPoolS, at_root: bool) -> bool {
         // SAFETY: the live worker
         let w = unsafe { &*self.worker };
         for k in 0..3 {
@@ -121,7 +121,15 @@ impl SepaS {
                             );
                         }
                     }
-                    1 => cf::highs_rs_path_separate(self.path, r, seed),
+                    1 => {
+                        // the path separator past its work limit: on at
+                        // the root while the gap to an incumbent is over 3
+                        // target gaps
+                        let sc = &lp.ms().d().sc;
+                        let wide = sc.upper_bound < f64::INFINITY
+                            && sc.upper_bound - lp.objective() > 3.0 * (sc.upper_bound - sc.optimality_limit);
+                        cf::highs_rs_path_separate(self.path, r, seed, at_root && wide)
+                    }
                     _ => cf::highs_rs_modk_separate(r, seed),
                 }
             }
@@ -216,7 +224,7 @@ unsafe extern "C" fn sepa_op(p: *mut c_void, which: i32, arg: i64) -> i64 {
             if w.get_global_domain().infeasible {
                 return 1;
             }
-            s.run_separators(lp, &mut round, w.get_cut_pool()) as i64
+            s.run_separators(lp, &mut round, w.get_cut_pool(), std::ptr::eq(propdomain, d.get_domain())) as i64
         }
         12 => {
             let sol = lp.col_value().to_vec();
