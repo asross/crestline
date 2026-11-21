@@ -832,6 +832,7 @@ mod tests {
             run_rins: true,
             run_rens: false,
             run_root_reduced_cost: true,
+            firstrootlpiters: 0,
             helpers: 1,
             crossover_state: AtomicI32::new(0),
         }
