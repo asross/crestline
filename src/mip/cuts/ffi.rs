@@ -54,8 +54,13 @@ pub unsafe extern "C" fn highs_rs_path_free(p: *mut PathSeparator) {
 /// # Safety
 /// live handles
 #[no_mangle]
-pub unsafe extern "C" fn highs_rs_path_separate(p: *mut PathSeparator, r: *mut SepaRound, cutgen_seed: u32) {
-    (*p).separate(&mut *r, cutgen_seed);
+pub unsafe extern "C" fn highs_rs_path_separate(
+    p: *mut PathSeparator,
+    r: *mut SepaRound,
+    cutgen_seed: u32,
+    continue_over_budget: bool,
+) {
+    (*p).separate(&mut *r, cutgen_seed, continue_over_budget);
 }
 
 #[no_mangle]

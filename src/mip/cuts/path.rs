@@ -15,7 +15,8 @@ const MAX_PATH_LEN: usize = 6;
 const K_HIGHS_TINY: f64 = 1e-14;
 /// Crestline: the aggregated row entries a call may pass to the cut
 /// generator, per nonzero of the LP; a call that reaches it stops, and
-/// the separator stays off. On the dispatch suite a call passes at most
+/// the separator stays off, except at the root while the gap is wide
+/// (see `separate`). On the dispatch suite a call passes at most
 /// 41 per nonzero; on dispatch models with dense coupling rows (heater to
 /// HTF credits) 190-250, about 4 s a call and nearly all of each root cut
 /// round, for dense path cuts that slow the LP and the search
@@ -46,6 +47,8 @@ pub struct PathSeparator {
     /// set once a call reaches its work limit: the separator then stays
     /// off
     over_budget: bool,
+    /// where the next call starts once one has stopped at the limit
+    next_row: usize,
 }
 
 /// Rows and their coefficients of the arcs of a column
@@ -78,11 +81,18 @@ impl PathSeparator {
             tmp_upper: Vec::new(),
             tmp_solval: Vec::new(),
             over_budget: false,
+            next_row: 0,
         }
     }
 
-    pub fn separate(&mut self, lp: &mut SepaRound, cutgen_seed: u32) {
-        if self.over_budget {
+    /// `continue_over_budget`: after a call stopped at the work limit, call
+    /// again, from the row where it stopped (the root while the gap is
+    /// wide: on a gas-boiler dispatch model, 250 entries per nonzero and a
+    /// wide root gap, stopping for good left the root bound well short of
+    /// CPLEX's; on the heater-HTF models, gaps of
+    /// 1.5%, the dense cuts cost more than they gain)
+    pub fn separate(&mut self, lp: &mut SepaRound, cutgen_seed: u32, continue_over_budget: bool) {
+        if self.over_budget && !continue_over_budget {
             return;
         }
         self.cutgen.reset(cutgen_seed, lp.feastol, lp.epsilon);
@@ -245,9 +255,12 @@ impl PathSeparator {
 
         let max_work = WORK_PER_NONZERO * a_start[num_col] as usize;
         let mut work = 0usize;
-        for i in 0..num_row {
+        let start = if self.over_budget { self.next_row % num_row.max(1) } else { 0 };
+        for k in 0..num_row {
+            let i = (start + k) % num_row;
             if work > max_work {
                 self.over_budget = true;
+                self.next_row = i;
                 break;
             }
             let scales: [f64; 2] = match rowtype[i] {
