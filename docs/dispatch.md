@@ -978,6 +978,54 @@ still improving and the bound flat.
   times slower (the first two or three rounds run before the first
   incumbent); boilers free, high price 0.60.
 
+## The path separator's aggregation length limit (2026-11-22)
+
+**Profile.** A full path separator call on the gas-boiler model (boilers
+off, high price; work limit off, one thread) takes 2.1-2.3 s; on a
+heater-HTF tick 3.1-3.5 s. 73-85% of it is the cut generator
+(bound substitution 25-39%, c-MIR scale search 17-40%, preprocessing
+10-14%), the rest is the aggregation, the column scan and path mixing.
+The aggregations come in two sizes: under 64 entries, and 30-130 times
+an average LP row (each path that reaches a dense coupling row). The
+long ones are 99% of the entries passed to the cut generator and gave
+no cut in any call; every c-MIR cut came from the short ones. Across
+the dispatch suite and the heater-HTF ticks the cuts came from
+aggregations of at most 100 + 16 average rows (the MIPLIB checks have
+longer ones, but also longer average rows).
+
+**The change.** A path stops once its aggregation has more than
+100 + 20 average LP rows of entries (in the spirit of SCIP's density
+limit on aggregations, but relative to the model's row length). A full
+call on those models then costs 1-3% as much (gas-boiler model: 0.029 s
+against 2.1-2.3 s; heater-HTF tick: 0.070 s against 3.1-3.5 s, one
+thread), stays far under the work limit and so runs to the end every
+round, at the root and in the tree: the work limit and the root
+continuation of PR #82 no longer come into play there. With the long
+aggregations gone the cut generator is a fifth of the call, so speeding
+it up (exact shortcuts in the c-MIR scale search were the candidate)
+no longer pays.
+
+**Screen** (M3 Pro, shared and loaded; 2 threads, 1% gap, 180 s, seeds
+0-3, base and candidate interleaved; shifted geometric mean ratio,
+solved counts):
+
+| model | ratio | solved base / candidate |
+|---|---|---|
+| gas boilers off, high price | (all TL) | gap 21.2% / 18.4% mean; bound 0.8% of the objective stronger |
+| gas boilers off, lower price | 0.509 | 3 / 4 |
+| gas boilers free, high price | 0.898 | 1 / 2 |
+| gas boilers free, lower price | 1.042 | 4 / 4 |
+| heater-HTF ticks (4) | 0.819, 0.916, 0.965, 0.973 | 16 / 16 |
+| dispatch suite (8) | 0.912 geomean | 26 / 25 |
+
+On the suite: `ovn_0636_g147` 0.747, `diverse_10-01_0052` 0.840 (2 to 1
+solved; it is the noisy one, A/A 1.15), `dm_full_pert_s1_ramp` 0.888,
+`lambda_20260930_142050_3c1b60d6` 0.919, `tick_1018_0340` 0.945,
+`hard_10-03_1340` 1.000 (final gap 1.31% to 1.28% mean), the rest within
+2%. (The Mac slept during the first suite screen; the four models with
+runs past the time limit were rerun.) MIPLIB checks (8 models, one
+thread): the same node counts on all eight, the limit never binds there.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
