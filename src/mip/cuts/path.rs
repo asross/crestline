@@ -21,6 +21,14 @@ const K_HIGHS_TINY: f64 = 1e-14;
 /// HTF credits) 190-250, about 4 s a call and nearly all of each root cut
 /// round, for dense path cuts that slow the LP and the search
 const WORK_PER_NONZERO: usize = 60;
+/// Crestline: a path stops once its aggregation has more entries than
+/// 100 plus this many average LP rows (in the spirit of SCIP's density
+/// limit on aggregations). On dispatch models with dense coupling rows,
+/// the aggregations through them (30-130 average rows long) took 99% of
+/// a call's work and gave no cut; the cuts came from aggregations under
+/// 100 + 16 average rows. With the limit a call there costs 1-3% as much
+/// and stays far under WORK_PER_NONZERO
+const MAX_AGGR_ROWS: usize = 20;
 
 /// The separator's state across rounds: its random generator and work
 /// space
@@ -254,6 +262,7 @@ impl PathSeparator {
         };
 
         let max_work = WORK_PER_NONZERO * a_start[num_col] as usize;
+        let max_aggr_len = 100 + MAX_AGGR_ROWS * a_start[num_col] as usize / num_row.max(1);
         let mut work = 0usize;
         let start = if self.over_budget { self.next_row % num_row.max(1) } else { 0 };
         for k in 0..num_row {
@@ -289,6 +298,9 @@ impl PathSeparator {
                 while curr_path_len != MAX_PATH_LEN {
                     let in_path = |row: i32, len: usize| current_path[..len].contains(&row);
                     lp.aggr_get(base_row_inds, base_row_vals, false);
+                    if base_row_inds.len() > max_aggr_len {
+                        break;
+                    }
                     let mut added_substitution_rows = false;
                     let mut best_out_arc_col = -1i32;
                     let mut out_arc_col_val = 0.0;
