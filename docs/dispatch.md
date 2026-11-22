@@ -1026,6 +1026,50 @@ solved; it is the noisy one, A/A 1.15), `dm_full_pert_s1_ramp` 0.888,
 runs past the time limit were rerun.) MIPLIB checks (8 models, one
 thread): the same node counts on all eight, the limit never binds there.
 
+## Where the truth is on the gas-boiler model (2026-11-22)
+
+The gas-boiler model with the boilers held off and the high unserved-steam
+price, after the aggregation length limit (2 threads, 1% gap, 180 s):
+over 22 seeds the gap at 180 s is 7.0-15.7% (mean 9.8%). The 180 s bound
+varies by 1.0% of the objective across seeds, the incumbent by 8%.
+
+**Long runs.** Crest at 4 threads, gap 0.1%, 90 min: 5.9% at 17 min, then
+four restarts, each raising the bound (the first by 0.6% of the objective
+at its root), and 3.1% at the end. Its bound is 2.6% of the objective
+stronger than the mean 180 s bound, its incumbent 3.7% better than the
+mean 180 s incumbent. SCIP (one thread, 35 min, 300 nodes) had a bound
+0.6% of the objective weaker than that crest run at the same time, and no
+incumbent within 9%. So the optimum is somewhere in a 3.1% window, and no
+solver here proves 1% in 90 minutes; at 180 s both sides fall short (the
+bound by at least 2.6% of the objective, the incumbent by 0.4% at the
+best seed, 3.7% on average).
+
+**Why the bound is weak.** The boilers are held off, so the integer
+columns are the banks' charging switches. 93% of the difference between
+the root LP and a good incumbent is the unserved-steam term: in the LP
+the banks are charged a little more evenly, and the plant discharges
+slightly more in each step of the lull. The two plans' per-bank states
+of charge agree to within a few percent. Each step's shortfall is small,
+but the objective is a small difference of large terms (the unserved
+steam costs about 1.5 times the objective's magnitude), so 1% of the
+objective is about 0.6% of the unserved steam. No cut family targets
+this; CPLEX's and SCIP's root bounds are weaker than crest's.
+
+**Measured, not kept:**
+- The main solver's deep graph LNS with a helper running even when the
+  gap after the root is over three target gaps (the helper already does
+  this; the main solver otherwise runs RENS, whose sub-MIP spends 30 s on
+  a root LP from scratch here, then strong branching, 6-14 nodes by
+  180 s). On this model: mean gap 8.2% (14 seeds) against 9.8% (22), but
+  the same change gated to gaps over ten target gaps gave 9.9% (8 other
+  seeds), on which it takes the same path: per-seed noise (5.5-13.5% for
+  one binary) swamps it. Elsewhere `diverse_10-01_0052` 1.26-1.29 (one
+  run fewer solved in both screens), the boilers-free high-price twin
+  1.01-1.17, `tick_1018_0340` 0.84-1.01.
+- More root cut rounds (stall limit 30 rounds instead of 3), one thread:
+  root bound 0.5% of the objective stronger, 10 s more root; well short
+  of the 2.6% needed, not screened.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -1076,3 +1120,6 @@ thread): the same node counts on all eight, the limit never binds there.
   each sweep over the rows gains a share of the target gap, or with no
   incumbent: the heater-HTF ticks 1.2-2.5 times slower (see "The path
   separator's work limit at the root").
+- The main solver's deep graph LNS beside a helper when the root gap is
+  wide (see "Where the truth is on the gas-boiler model"): within seed
+  noise there, slower on `diverse_10-01_0052` and a gas-boiler twin.
