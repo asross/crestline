@@ -481,8 +481,51 @@ impl GraphLns<'_> {
         infeasible
     }
 
+    /// A move for the flip search's memory: its columns, each with the
+    /// value it leaves (`p` is -1 for a single flip)
+    fn move_key(&self, j: i32, p: i32, gb: &Bnd) -> (i32, i32) {
+        let d = |c: i32| 2 * c + (self.cur[c as usize] > gb.lo(c as usize)) as i32;
+        (d(j), if p < 0 { -1 } else { d(p) })
+    }
+
+    /// `col` has changed: a new epoch for the columns of its rows
+    fn touch(&mut self, col: i32) {
+        let e = self.h.lns_flip_epoch;
+        self.h.lns_flip_touched[col as usize] = e;
+        for p in self.g.col(col as usize) {
+            for q in self.g.row(self.g.a_index[p] as usize) {
+                self.h.lns_flip_touched[self.g.ar_index[q] as usize] = e;
+            }
+        }
+    }
+
+    /// Whether the move failed before with no decision column of its
+    /// columns' rows changed since
+    fn known_failure(&self, j: i32, p: i32, gb: &Bnd) -> bool {
+        let t = &self.h.lns_flip_touched;
+        let failed = self.h.lns_flip_failed.get(&self.move_key(j, p, gb));
+        failed.is_some_and(|&e| t[j as usize] <= e && (p < 0 || t[p as usize] <= e))
+    }
+
     /// try a move: on improvement keep it, otherwise undo it
     fn try_move(&mut self, cols: &[i32], solves: &mut i32, gb: &Bnd) -> bool {
+        let memory = self.m.opts.mip_graph_lns_flip_memory;
+        let key = self.move_key(cols[0], if cols.len() > 1 { cols[1] } else { -1 }, gb);
+        let improved = self.try_move_lp(cols, solves, gb);
+        if memory && improved {
+            self.h.lns_flip_failed.remove(&key);
+            self.h.lns_flip_epoch += 1;
+            for &c in cols {
+                self.touch(c);
+                self.h.lns_flip_last[c as usize] = self.cur[c as usize];
+            }
+        } else if memory {
+            self.h.lns_flip_failed.insert(key, self.h.lns_flip_epoch);
+        }
+        improved
+    }
+
+    fn try_move_lp(&mut self, cols: &[i32], solves: &mut i32, gb: &Bnd) -> bool {
         // (moves ruled out by propagation, which cost far less than an LP
         // solve, count as one in four)
         if self.propagation_infeasible(cols, gb) {
@@ -512,7 +555,15 @@ impl GraphLns<'_> {
     }
 
     /// Flip search: first-improvement local search from the incumbent with
-    /// all decision columns fixed at it; returns the number of LP solves
+    /// all decision columns fixed at it; returns the number of LP solves.
+    ///
+    /// Crestline (mip_graph_lns_flip_memory): a move that did not improve
+    /// is not tried again until a decision column in a row of one of its
+    /// columns has changed (the don't-look bits of local search). After
+    /// each improving move the search starts again from the best
+    /// candidate, and without the memory most of what it then tries are
+    /// the moves that have just failed: on an overnight dispatch tick
+    /// 15000 of 16000 tries in a solve, of which 3 improved.
     fn flip_search(&mut self, max_solves: i32) -> i32 {
         const PARTNERS: usize = 3;
         const SCREEN_BATCH: usize = 32;
@@ -531,6 +582,29 @@ impl GraphLns<'_> {
                 let col = c as usize;
                 self.cur[col] = cmin(cmax(inc[col].round(), gb.lo(col)), gb.up(col));
             }
+        }
+        let memory = m.opts.mip_graph_lns_flip_memory;
+        if memory {
+            // the columns another move or solver has changed since the last
+            // search
+            if self.h.lns_flip_touched.len() != self.n {
+                self.h.lns_flip_touched = vec![0; self.n];
+                self.h.lns_flip_failed.clear();
+                self.h.lns_flip_last.clear();
+                self.h.lns_flip_epoch = 0;
+            }
+            if self.h.lns_flip_last.len() == self.n {
+                let last = &self.h.lns_flip_last;
+                let changed: Vec<i32> =
+                    self.h.decisioncols.iter().copied().filter(|&c| last[c as usize] != self.cur[c as usize]).collect();
+                if !changed.is_empty() {
+                    self.h.lns_flip_epoch += 1;
+                    for c in changed {
+                        self.touch(c);
+                    }
+                }
+            }
+            self.h.lns_flip_last.clone_from(&self.cur);
         }
         // the incumbent's decision columns are fixed in the LP, others get
         // their global bounds
@@ -558,9 +632,37 @@ impl GraphLns<'_> {
             let rc = self.lp.col_dual().to_vec();
             self.lns.flip_candidates(&self.cur, glo, gup, &rc, self.feastol);
             let flip_cands = self.lns.flip_cands.clone();
-            let mut batch_end = start;
+            // the next candidates with a move to try: (index, partners,
+            // whether the single flip is one)
+            let mut batch: std::collections::VecDeque<(usize, Vec<i32>, bool)> = Default::default();
             let mut open: Vec<i32> = Vec::new();
-            for c in start..flip_cands.len() {
+            let mut c = start;
+            'pass: loop {
+                if batch.is_empty() {
+                    open.clear();
+                    while c < flip_cands.len() && batch.len() < SCREEN_BATCH {
+                        let j = flip_cands[c].1;
+                        self.lns.find_partners(&self.g, j as usize, &self.cur, glo, gup, &rc);
+                        let mut partners: Vec<i32> = self.lns.partners.iter().take(PARTNERS).map(|p| p.1).collect();
+                        let mut single = true;
+                        if memory {
+                            single = !self.known_failure(j, -1, &gb);
+                            partners.retain(|&p| !self.known_failure(j, p, &gb));
+                        }
+                        if single || !partners.is_empty() {
+                            open.push(j);
+                            open.extend(&partners);
+                            batch.push_back((c, partners, single));
+                        }
+                        c += 1;
+                    }
+                    if batch.is_empty() {
+                        break 'pass;
+                    }
+                    // these candidates and their partners are open in the base
+                    self.build_base(&open);
+                }
+                let (ci, partners, single) = batch.pop_front().unwrap();
                 if solves >= max_solves
                     || self.lp.num_lp_iterations() - flip_start_iters > self.flip_max_iters
                     || self.within_gap()
@@ -568,43 +670,26 @@ impl GraphLns<'_> {
                     || m.check_limits()
                 {
                     self.h.lns_flip_obj = m.upper_bound();
-                    self.h.lns_flip_next = c as i32;
+                    self.h.lns_flip_next = ci as i32;
                     self.drop_base();
                     return solves;
                 }
-                if c >= batch_end {
-                    // the next candidates and their partners are open in the
-                    // base
-                    batch_end = flip_cands.len().min(c + SCREEN_BATCH);
-                    open.clear();
-                    for fb in &flip_cands[c..batch_end] {
-                        open.push(fb.1);
-                        self.lns.find_partners(&self.g, fb.1 as usize, &self.cur, glo, gup, &rc);
-                        open.extend(self.lns.partners.iter().take(PARTNERS).map(|p| p.1));
-                    }
-                    self.build_base(&open);
-                }
-                let j = flip_cands[c].1;
-                if self.try_move(&[j], &mut solves, &gb) {
+                let j = flip_cands[ci].1;
+                if single && self.try_move(&[j], &mut solves, &gb) {
                     improved = true;
-                    break;
+                    break 'pass;
                 }
-                self.lns.find_partners(&self.g, j as usize, &self.cur, glo, gup, &rc);
-                let partners: Vec<i32> = self.lns.partners.iter().take(PARTNERS).map(|p| p.1).collect();
                 for &p in &partners {
-                    if improved {
-                        break;
-                    }
                     if solves >= max_solves {
                         self.h.lns_flip_obj = m.upper_bound();
-                        self.h.lns_flip_next = c as i32;
+                        self.h.lns_flip_next = ci as i32;
                         self.drop_base();
                         return solves;
                     }
-                    improved = self.try_move(&[j, p], &mut solves, &gb);
-                }
-                if improved {
-                    break;
+                    if self.try_move(&[j, p], &mut solves, &gb) {
+                        improved = true;
+                        break 'pass;
+                    }
                 }
             }
             start = 0;

@@ -75,6 +75,16 @@ pub struct Heur {
     pub(crate) lns_moves: [LnsMove; 4],
     pub(crate) lns_flip_obj: f64,
     pub(crate) lns_flip_next: i32,
+    /// The flip search's memory (mip_graph_lns_flip_memory): the moves that
+    /// did not improve (each column with the value it leaves; -1 for the
+    /// partner of a single flip) with the epoch then; per column, the
+    /// epoch at which a decision column of its rows last changed; the
+    /// epoch (the number of such changes); the decision columns' values at
+    /// the end of the last search
+    pub(crate) lns_flip_failed: std::collections::HashMap<(i32, i32), u32>,
+    pub(crate) lns_flip_touched: Vec<u32>,
+    pub(crate) lns_flip_epoch: u32,
+    pub(crate) lns_flip_last: Vec<f64>,
     success_observations: f64,
     num_success_observations: i32,
     infeas_observations: f64,
@@ -168,6 +178,10 @@ impl Heur {
             lns_moves: [LnsMove::default(); 4],
             lns_flip_obj: INF,
             lns_flip_next: 0,
+            lns_flip_failed: Default::default(),
+            lns_flip_touched: Vec::new(),
+            lns_flip_epoch: 0,
+            lns_flip_last: Vec::new(),
             success_observations: 0.0,
             num_success_observations: 0,
             infeas_observations: 0.0,
@@ -226,6 +240,9 @@ impl Heur {
         self.isolated_cols = false;
         self.lns_moves = [LnsMove::default(); 4];
         self.lns_flip_obj = INF;
+        self.lns_flip_failed.clear();
+        self.lns_flip_touched.clear();
+        self.lns_flip_last.clear();
         let feastol = m.feastol();
         let (up, down) = (m.uplocks(), m.downlocks());
         let clq = m.clique();

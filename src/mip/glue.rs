@@ -359,6 +359,7 @@ pub struct MipOptions {
     pub mip_deterministic: bool,
     pub mip_symmetry_static_orbitopes: bool,
     pub mip_graph_lns_flip_first: bool,
+    pub mip_graph_lns_flip_memory: bool,
 }
 
 /// The original model (for solutions in the original space)

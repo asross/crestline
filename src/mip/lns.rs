@@ -20,11 +20,11 @@ pub struct Graph<'a> {
 
 impl Graph<'_> {
     #[inline]
-    fn col(&self, j: usize) -> std::ops::Range<usize> {
+    pub fn col(&self, j: usize) -> std::ops::Range<usize> {
         self.a_start[j] as usize..self.a_start[j + 1] as usize
     }
     #[inline]
-    fn row(&self, i: usize) -> std::ops::Range<usize> {
+    pub fn row(&self, i: usize) -> std::ops::Range<usize> {
         self.ar_start[i] as usize..self.ar_start[i + 1] as usize
     }
 }
