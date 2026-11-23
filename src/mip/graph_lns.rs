@@ -19,7 +19,7 @@ const BRANCHING: Reason = Reason { kind: REASON_BRANCHING, index: 0 };
 /// search
 const NODE_LIMIT: i32 = 300;
 /// experiment: partners looked at per candidate (0: the first three only)
-const XDEEP_DEFAULT: usize = 0;
+const XDEEP_DEFAULT: usize = 8;
 
 fn usable(st: i32) -> bool {
     st == lp_status::OPTIMAL || st == lp_status::UNSCALED_PRIMAL_FEASIBLE
