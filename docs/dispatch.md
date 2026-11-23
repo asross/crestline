@@ -60,7 +60,9 @@ picks, among four moves, the one closing the most gap per LP iteration:
   unit over time), searched by branch and bound;
 - flip search: with all decision columns fixed at the incumbent, flip
   binaries in order of the gain promised by their reduced cost, and pair a
-  promising flip with an opposite flip in one of its rows (swaps);
+  promising flip with an opposite flip in one of its rows (swaps); a move
+  that did not improve waits until a column next to it changes (see "The
+  flip search's memory of failed moves");
 - BFS over all rows, dived.
 
 Seeds are columns with a promising reduced cost at the incumbent, columns
@@ -221,6 +223,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
 | `mip_lp_scaling` | false: the LPs of MIPs of at least 10000 rows (before presolve) are solved unscaled (true: scaled, as in HiGHS; see [performance.md](./performance.md)) |
 | `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when some decision column shares no row with another integer column and the root dive leaves a wide gap (false: it ends with it; see "Isolated decision columns: the flip search first") |
+| `mip_graph_lns_flip_memory` | true: the flip search leaves a move that did not improve untried until a decision column in a row of one of its columns has changed (false: as the C++; see "The flip search's memory of failed moves") |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
@@ -1266,6 +1269,61 @@ architecture):
 
 On these models the gap after the root cuts is rarely over three target
 gaps, so the change seldom acts.
+
+## The flip search's memory of failed moves (2026-11-23)
+
+**Where its solves went.** The flip search is first improvement: the
+candidates in order of the gain their reduced costs promise, each as a
+single flip and with up to three partners, a propagation screen before
+each LP solve. After every improving move it starts again from the best
+candidate. On an overnight tick (`ovn_0636_g147`, one thread, one seed) it
+tried 16000 moves in the solve. 15000 of them had failed before with no
+decision column changed since in a row of one of their columns, and 3 of
+those improved. Most repeats are stopped by the screen, which counts as a
+quarter of an LP solve in the search's budget, so a search of 300 solves
+got through the first 26 to 130 of its 350 candidates and used 15 to 50
+LP solves.
+
+**The change** (`mip_graph_lns_flip_memory`, on; `lns::FlipMemory`). The
+don't-look bits of local search (Bentley's 2-opt): a move that did not
+improve (its columns, each with the value it leaves) is not tried again
+until a decision column in a row of one of its columns has changed,
+whether by the search's own moves or by another move or solver (the
+incumbent's decision columns are compared with those the last search
+left). The search is exhausted when no move it may try improves.
+
+**A plain memory is worse.** Tried first: every move that failed is
+skipped until none is left to try, then all are forgotten. The search
+reaches a local optimum sooner, and a worse one (M1, instruction clock,
+one thread, 4 seeds, shifted geometric mean of the time to 1%:
+`ovn_0636_g147` 53 to 118, `ovn_0716_g158` 39 to 126 with 2 of 4 at the
+limit, `ovn_1148_g105` 36 to 69). A move that failed can improve once a
+flip next to it is made; the search without memory tries it again at
+once, as the best candidate still, and the plain memory only after the
+moves around it have been made in another order. The rule on the rows
+keeps the first and drops the rest.
+
+**Results.** Paired on the runners (bench-dispatch, 180 s, seeds 0-15,
+the 36 models; the base has `mip_graph_lns_flip_memory` and
+`mip_graph_lns_flip_first` off, which is main on these models, none
+having an isolated decision column):
+
+| | one thread (arm64, 576 pairs) | two threads (arm64 / x86-64; INTERIM, 25 of 32 runners) |
+|---|---|---|
+| time to 1%, geometric mean over the models | 0.948 | 0.967 / 0.959 |
+| solved | 524 -> 534 | 419 -> 420 / 455 -> 454 |
+| time to within 1% of the best known | 0.972 [0.960, 0.983] | 0.991 [0.985, 0.997] / 0.989 [0.982, 0.996] |
+| primal gap at the end, difference | -0.009 ± 0.005 | -0.006 ± 0.004 / -0.006 ± 0.003 |
+
+One thread, by model: `ovn_1148_g105` 0.60, `tick_1025_0028` 0.66,
+`tick_1025_0004` 0.75, `ovn_0716_g158` 0.81, `ovn_0636_g147` and
+`ovn_0700_g157` 0.84, `tick_1023_2236` 0.87,
+`lambda_20260930_142050_3c1b60d6` 0.88; `tick_1018_0340` solved in 10 of
+16 runs (4 before) and `tick_1018_0420` in 11 (5); `diverse_10-01_0052`
+in 2 (4). The models whose quick search closes the gap with its
+neighbourhoods (`dm_full_*`, `dm_medium_*`) are unchanged: the flip
+search hardly runs there.
+
 
 ## Tried and rejected
 

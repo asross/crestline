@@ -131,6 +131,11 @@ unless it is anonymized.
   and a wide gap after the root dive, graph LNS's quick search starts
   with its flip search (see dispatch.md); the C++ runs it last. The
   oracle sets it to false for crest.
+- **The flip search's memory (`mip_graph_lns_flip_memory`, on by
+  default):** a move that did not improve is not tried again until a
+  decision column in a row of one of its columns has changed (see
+  dispatch.md); the C++ tries it again after every improving move. The
+  oracle sets it to false for crest.
 
 ## Rules for each step
 
