@@ -811,16 +811,17 @@ impl Heur {
         s.screen = Dom::copy(&gd);
         // Crestline (mip_graph_lns_flip_first): decision columns that no
         // neighbourhood reaches from the others (lns::has_isolated_cols) are
-        // moved by the flip search,
-        // which the quick search only runs at its end, if its LP budget
-        // lasts. With such columns and an incumbent still over three target
-        // gaps from the bound, it runs first. (On a gas-boiler dispatch
-        // model the root dive rounds a boiler off wherever the LP fires it
-        // below half its low fire, which leaves unserved load at a high
-        // price. Each boiler's flip improves on its own, and the search
-        // keeps a flip only if the LP improves: 18 LP solves took a 13% gap
-        // to under 1%, where the neighbourhoods had used up the budget on
-        // the banks' switches around boilers left off.)
+        // moved by the flip search, which the quick search only runs at its
+        // end, if its LP budget lasts. With such columns it runs first. (On
+        // a gas-boiler dispatch model the root dive rounds a boiler off
+        // wherever the LP fires it below half its low fire, which leaves
+        // unserved load. Each boiler's flip improves on its own, and the
+        // search keeps a flip only if the LP improves: at a high price of
+        // unserved load 18 LP solves took a 13% gap to under 1%, where the
+        // neighbourhoods had used up the budget on the banks' switches
+        // around boilers left off.) On models without such columns the
+        // neighbourhoods go first: the flips first were faster to a good
+        // incumbent but no faster to the target gap (see dispatch.md).
         if !deep && m.opts.mip_graph_lns_flip_first && s.h.isolated_cols && !s.within_gap() {
             s.flip_search(NODE_LIMIT);
         }
