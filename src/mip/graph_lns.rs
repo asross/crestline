@@ -100,6 +100,9 @@ struct GraphLns<'a> {
     dive_cap: i64,
     /// the search's LP iteration budget
     iter_cap: i64,
+    /// the cost perturbation for an LP that stalls without it (0: the LPs
+    /// are perturbed anyway, or it is off for the whole solve)
+    stall_perturbation: f64,
 }
 
 impl GraphLns<'_> {
@@ -112,16 +115,53 @@ impl GraphLns<'_> {
         self.resolve(Some(dom))
     }
 
+    /// what is left of the search's LP iteration budget
+    fn budget_left(&self) -> i64 {
+        self.iter_cap - (self.lp.num_lp_iterations() - self.lp_iters_start)
+    }
+
+    /// Crestline: no LP solve once the budget is used up (see `resolve`;
+    /// not with mip_graph_lns_cost_perturbation, the C++ path)
+    fn budget_used_up(&self) -> bool {
+        self.stall_perturbation != 0.0 && self.budget_left() <= 0
+    }
+
     /// an LP solve within what is left of the search's LP iteration
     /// budget, and at most a quarter of the first root LP's iterations (on
     /// the dispatch suite no re-solve takes over 0.15 of them): a single
     /// LP must not run past them (a dive's re-solve of a badly conditioned
-    /// infeasible LP otherwise ran for minutes)
+    /// infeasible LP otherwise ran for minutes).
+    ///
+    /// Crestline: the LPs run without cost perturbation (unless
+    /// mip_graph_lns_cost_perturbation), where a degenerate re-solve can
+    /// stall. HighsLpRelaxation::run answers an iteration limit with the
+    /// basis of a full interior point solve of the LP. Here a solve that
+    /// stops at the per-LP limit first goes on with the perturbation, and
+    /// one that stops because the search's budget ends is left there (as
+    /// is the budget: no LP solve once it is used up).
     fn resolve(&self, dom: Option<&Dom>) -> i32 {
-        let left = self.iter_cap - (self.lp.num_lp_iterations() - self.lp_iters_start);
         let one = 1000i64.max(self.m.firstrootlpiters() / 4);
-        self.lp.set_iteration_limit(left.min(one).clamp(1, i32::MAX as i64) as i32);
-        self.lp.resolve(dom)
+        let limit = |left: i64| left.min(one).clamp(1, i32::MAX as i64) as i32;
+        let left = self.budget_left();
+        if self.stall_perturbation == 0.0 {
+            self.lp.set_iteration_limit(limit(left));
+            return self.lp.resolve(dom);
+        }
+        if self.budget_used_up() {
+            return lp_status::ERROR;
+        }
+        self.lp.set_iteration_limit(limit(left));
+        self.lp.set_no_ipm_basis(true);
+        let st = self.lp.resolve(dom);
+        self.lp.set_no_ipm_basis(false);
+        if left <= one || !self.lp.hit_iteration_limit() {
+            return st;
+        }
+        self.lp.set_cost_perturbation(self.stall_perturbation);
+        self.lp.set_iteration_limit(limit(self.budget_left()));
+        let st = self.lp.resolve(dom);
+        self.lp.set_cost_perturbation(0.0);
+        st
     }
 
     /// an LP solution with every integral column integral is a new
@@ -159,7 +199,11 @@ impl GraphLns<'_> {
         // the last usable LP solution
         let mut sol = self.lp.col_value().to_vec();
         while solves < max_solves {
-            if self.w.terminated() || self.m.check_limits() || self.lp_budget_exceeded(self.dive_cap) {
+            if self.w.terminated()
+                || self.m.check_limits()
+                || self.lp_budget_exceeded(self.dive_cap)
+                || self.budget_used_up()
+            {
                 return false;
             }
             order.clear();
@@ -291,7 +335,7 @@ impl GraphLns<'_> {
         let mut st = lp_status::OPTIMAL;
         let mut solved = true; // the LP is solved on entry
         loop {
-            if self.w.terminated() || self.m.check_limits() {
+            if self.w.terminated() || self.m.check_limits() || self.budget_used_up() {
                 break;
             }
             if !solved {
@@ -624,6 +668,7 @@ impl GraphLns<'_> {
                 }
                 let (ci, partners, single) = batch.pop_front().unwrap();
                 if solves >= max_solves
+                    || self.budget_used_up()
                     || self.lp.num_lp_iterations() - flip_start_iters > self.flip_max_iters
                     || self.within_gap()
                     || self.w.terminated()
@@ -711,7 +756,9 @@ impl Heur {
         // domain
         let lp = Lp::copy(w.d.lp, w);
         lp.set_adjust_symmetric_branching_col(false);
+        let mut stall_perturbation = 0.0;
         if !m.opts.graph_lns_cost_perturbation {
+            stall_perturbation = lp.cost_perturbation();
             lp.set_option(4);
         }
         let iters_fac = if deep { 10.0 } else { 3.0 };
@@ -758,6 +805,7 @@ impl Heur {
             flip_max_iters: 5000i64.max(m.firstrootlpiters()),
             dive_cap: i64::MAX,
             iter_cap: heur_iters_cap,
+            stall_perturbation,
         };
         if m.opts.mip_graph_lns_deep_early {
             s.dive_cap = heur_iters_cap;
