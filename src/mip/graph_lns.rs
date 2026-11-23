@@ -19,7 +19,7 @@ const BRANCHING: Reason = Reason { kind: REASON_BRANCHING, index: 0 };
 /// search
 const NODE_LIMIT: i32 = 300;
 /// experiment: see search_neighbourhood
-const XSTALL_DEFAULT: i32 = 0;
+const XSTALL_DEFAULT: i32 = 150;
 
 fn usable(st: i32) -> bool {
     st == lp_status::OPTIMAL || st == lp_status::UNSCALED_PRIMAL_FEASIBLE
