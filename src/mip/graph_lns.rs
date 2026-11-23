@@ -18,6 +18,8 @@ const BRANCHING: Reason = Reason { kind: REASON_BRANCHING, index: 0 };
 /// The LP solves of a neighbourhood's branch and bound and of a deep flip
 /// search
 const NODE_LIMIT: i32 = 300;
+/// experiment: partners looked at per candidate (0: the first three only)
+const XDEEP_DEFAULT: usize = 0;
 
 fn usable(st: i32) -> bool {
     st == lp_status::OPTIMAL || st == lp_status::UNSCALED_PRIMAL_FEASIBLE
@@ -628,6 +630,7 @@ impl GraphLns<'_> {
         self.screened = 0;
         // SAFETY: the global domain does not change during the search
         let (glo, gup) = unsafe { bound_slices(&gb, self.n) };
+        let xdeep: usize = std::env::var("CREST_PARTNERS").ok().and_then(|v| v.parse().ok()).unwrap_or(XDEEP_DEFAULT);
         let mut improved = true;
         while improved {
             improved = false;
@@ -651,7 +654,13 @@ impl GraphLns<'_> {
                         if memory {
                             let known = |p: i32| self.h.lns_flip_memory.known(self.move_key(j, p, &gb), j, p);
                             single = !known(-1);
-                            partners.retain(|&p| !known(p));
+                            if xdeep > 0 {
+                                // the first PARTNERS partners not known to fail, among the first xdeep
+                                partners =
+                                    self.lns.partners.iter().take(xdeep).map(|p| p.1).filter(|&p| !known(p)).take(PARTNERS).collect();
+                            } else {
+                                partners.retain(|&p| !known(p));
+                            }
                         }
                         if single || !partners.is_empty() {
                             open.push(j);
