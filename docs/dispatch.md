@@ -1308,22 +1308,35 @@ the 36 models; the base has `mip_graph_lns_flip_memory` and
 `mip_graph_lns_flip_first` off, which is main on these models, none
 having an isolated decision column):
 
-| | one thread (arm64, 576 pairs) | two threads (arm64 / x86-64; INTERIM, 25 of 32 runners) |
+| | one thread (arm64) | two threads (arm64 / x86-64) |
 |---|---|---|
-| time to 1%, geometric mean over the models | 0.948 | 0.967 / 0.959 |
-| solved | 524 -> 534 | 419 -> 420 / 455 -> 454 |
-| time to within 1% of the best known | 0.972 [0.960, 0.983] | 0.991 [0.985, 0.997] / 0.989 [0.982, 0.996] |
-| primal gap at the end, difference | -0.009 ± 0.005 | -0.006 ± 0.004 / -0.006 ± 0.003 |
+| time to 1%, geometric mean over the models | 0.948 | 0.963 / 0.953 |
+| solved, of 576 | 524 -> 534 | 553 -> 556 / 556 -> 556 |
+| time to within 1% of the best known | 0.972 [0.960, 0.983] | 0.990 [0.984, 0.996] / 0.990 [0.984, 0.996] |
+| primal gap at the end, difference | -0.009 ± 0.005 | -0.007 ± 0.004 / -0.007 ± 0.003 |
 
-One thread, by model: `ovn_1148_g105` 0.60, `tick_1025_0028` 0.66,
-`tick_1025_0004` 0.75, `ovn_0716_g158` 0.81, `ovn_0636_g147` and
-`ovn_0700_g157` 0.84, `tick_1023_2236` 0.87,
-`lambda_20260930_142050_3c1b60d6` 0.88; `tick_1018_0340` solved in 10 of
-16 runs (4 before) and `tick_1018_0420` in 11 (5); `diverse_10-01_0052`
-in 2 (4). The models whose quick search closes the gap with its
-neighbourhoods (`dm_full_*`, `dm_medium_*`) are unchanged: the flip
-search hardly runs there.
+By model (time ratio with its 95% interval over the seeds, one thread;
+then two threads, arm64 / x86-64):
 
+| | one thread | two threads |
+|---|---|---|
+| `ovn_1148_g105` | 0.60 [0.46, 0.79] | 0.85 / 0.76 |
+| `tick_1025_0028` | 0.66 [0.54, 0.82] | 0.79 / 0.80 |
+| `tick_1025_0004` | 0.75 [0.64, 0.87] | 0.83 / 0.86 |
+| `ovn_0716_g158` | 0.81 [0.57, 1.13] | 0.82 / 0.73 |
+| `ovn_0636_g147`, `ovn_0700_g157` | 0.84, 0.84 | 1.01 / 1.05, 0.96 / 0.83 |
+| `tick_1023_2236` | 0.87 [0.81, 0.92] | 0.87 / 0.82 |
+| `lambda_20260930_142050_3c1b60d6` | 0.88 [0.78, 0.99] | 0.95 / 1.01 |
+| `tick_1015_1901` | 0.95 [0.91, 1.00] | 0.91 / 0.92 |
+| `tick_1018_0340` | solved 4 -> 10 of 16 | 0.82 / 0.93 |
+| `tick_1018_0420` | solved 5 -> 11 | 0.96 / 0.93 |
+| `diverse_10-01_0052` | solved 4 -> 2 | solved 9 -> 12 / 12 -> 12 |
+| `hard_10-03_1340` (never solved) | gap -0.026 ± 0.07 | gap -0.003 / +0.001 |
+
+The models whose quick search closes the gap with its neighbourhoods
+(`dm_full_*`, `dm_medium_*`) are within 1%: the flip search hardly runs
+there. The public check models (`check/instances`, 1% gap, one thread)
+end with the same status as before.
 
 ## Tried and rejected
 
