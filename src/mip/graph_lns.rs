@@ -18,6 +18,8 @@ const BRANCHING: Reason = Reason { kind: REASON_BRANCHING, index: 0 };
 /// The LP solves of a neighbourhood's branch and bound and of a deep flip
 /// search
 const NODE_LIMIT: i32 = 300;
+/// experiment: see search_neighbourhood
+const XSTALL_DEFAULT: i32 = 0;
 
 fn usable(st: i32) -> bool {
     st == lp_status::OPTIMAL || st == lp_status::UNSCALED_PRIMAL_FEASIBLE
@@ -334,8 +336,14 @@ impl GraphLns<'_> {
         *exhausted = false;
         let mut st = lp_status::OPTIMAL;
         let mut solved = true; // the LP is solved on entry
+        let mut last_improved = 0;
+        let xstall: i32 = std::env::var("CREST_DFSSTALL").ok().and_then(|v| v.parse().ok()).unwrap_or(XSTALL_DEFAULT);
         loop {
             if self.w.terminated() || self.m.check_limits() || self.budget_used_up() {
+                break;
+            }
+            // experiment: stop a search that has not improved for xstall nodes
+            if xstall > 0 && nodes - last_improved >= xstall {
                 break;
             }
             if !solved {
@@ -346,6 +354,10 @@ impl GraphLns<'_> {
             let prune = !usable(st) || self.lp.objective() >= self.w.upper_limit();
             if !prune {
                 if self.try_incumbent(st) {
+                    last_improved = nodes;
+                    if std::env::var_os("CREST_DFSDIAG").is_some() {
+                        eprintln!("DFSDIAG improve at node {} depth {} cands {}", nodes, path.len(), cands.len());
+                    }
                     if self.within_gap() {
                         break;
                     }
@@ -409,6 +421,9 @@ impl GraphLns<'_> {
             if nodes >= node_limit {
                 break;
             }
+        }
+        if std::env::var_os("CREST_DFSDIAG").is_some() {
+            eprintln!("DFSDIAG end nodes {} exhausted {} cands {}", nodes, *exhausted, cands.len());
         }
         while path.pop().is_some() {
             dom.backtrack();
@@ -857,6 +872,11 @@ impl Heur {
         }
         let mut deep_tries = [0i32; 4];
         s.screen = Dom::copy(&gd);
+        // diag: per bucket (types 0-3, 4 flips first, 5 polish): tries, improved, LP iterations, seconds, gain
+        let mut dstat = [[0.0f64; 5]; 6];
+        let dcall = std::time::Instant::now();
+        let dub0 = m.upper_bound();
+        let dt_start = m.timer_read();
         // Crestline (mip_graph_lns_flip_first): the flip search first,
         // rather than at the end of the quick search if its LP budget
         // lasts, in two cases.
@@ -881,7 +901,9 @@ impl Heur {
         let gap = m.upper_bound() - m.lower_bound();
         let target = m.upper_bound() - m.optimality_limit();
         if !deep && m.opts.mip_graph_lns_flip_first && gap > target && (gap <= 3.0 * target || s.h.isolated_cols) {
+            let (t0, i0, u0) = (std::time::Instant::now(), s.lp.num_lp_iterations(), m.upper_bound());
             s.flip_search(NODE_LIMIT);
+            dstat[4] = [1.0, (m.upper_bound() < u0) as i32 as f64, (s.lp.num_lp_iterations() - i0) as f64, t0.elapsed().as_secs_f64(), u0 - m.upper_bound()];
         }
         let mut it = 0;
         while since < max_stall && it < max_it {
@@ -908,8 +930,14 @@ impl Heur {
                 let limit_before = m.optimality_limit();
                 let gap_before = before - m.lower_bound();
                 let start_iters = s.lp.num_lp_iterations();
+                let dt0 = std::time::Instant::now();
                 let solves = s.flip_search(NODE_LIMIT);
                 let effort = 1.0 + (s.lp.num_lp_iterations() - start_iters) as f64;
+                dstat[2][0] += 1.0;
+                dstat[2][1] += (m.upper_bound() < before - feastol) as i32 as f64;
+                dstat[2][2] += effort;
+                dstat[2][3] += dt0.elapsed().as_secs_f64();
+                dstat[2][4] += before - m.upper_bound();
                 let closed = if gap_before > 0.0 { (before - m.upper_bound()) / gap_before } else { 0.0 };
                 let nt = &mut s.h.lns_moves[2];
                 nt.tried += 1;
@@ -949,6 +977,7 @@ impl Heur {
             // fix everything outside the neighbourhood to the incumbent,
             // warm from the last LP solved, near the incumbent
             let start_iters = s.lp.num_lp_iterations();
+            let dt0 = std::time::Instant::now();
             dom.assign(&gd);
             let mut feasible = true;
             for &c in &decisioncols {
@@ -1025,6 +1054,11 @@ impl Heur {
             if improved {
                 nt.improved += 1;
             }
+            dstat[ty][0] += 1.0;
+            dstat[ty][1] += improved as i32 as f64;
+            dstat[ty][2] += effort;
+            dstat[ty][3] += dt0.elapsed().as_secs_f64();
+            dstat[ty][4] += before - m.upper_bound();
             crate::log_dev!(
                 log,
                 LogType::Verbose,
@@ -1051,7 +1085,9 @@ impl Heur {
         // search
         if !deep && !s.within_gap() && !s.lp_budget_exceeded(heur_iters_cap) && !w.terminated() && !m.check_limits() {
             let before = m.upper_bound();
+            let (t0, i0) = (std::time::Instant::now(), s.lp.num_lp_iterations());
             let solves = s.flip_search(100);
+            dstat[5] = [1.0, (m.upper_bound() < before) as i32 as f64, (s.lp.num_lp_iterations() - i0) as f64, t0.elapsed().as_secs_f64(), before - m.upper_bound()];
             crate::log_dev!(
                 log,
                 LogType::Verbose,
@@ -1061,6 +1097,25 @@ impl Heur {
                 before,
                 m.upper_bound()
             );
+        }
+        if std::env::var_os("CREST_LNSDIAG2").is_some() {
+            let names = ["bfs", "short", "flips", "dives", "flipfirst", "polish"];
+            let mut line = format!(
+                "LNSDIAG2 {} {} at {:.1}s t={:.2}s ub {:.1}->{:.1} gap {:.3}%:",
+                who,
+                if deep { "deep" } else { "quick" },
+                dt_start,
+                dcall.elapsed().as_secs_f64(),
+                dub0,
+                m.upper_bound(),
+                100.0 * (m.upper_bound() - m.lower_bound()) / m.upper_bound().abs().max(1e-9)
+            );
+            for (k, d) in dstat.iter().enumerate() {
+                if d[0] > 0.0 {
+                    line += &format!(" {} {}/{} it {} {:.2}s gain {:.1};", names[k], d[1], d[0], d[2], d[3], d[4]);
+                }
+            }
+            eprintln!("{line}");
         }
         let t = s.h.lns_moves;
         crate::log_dev!(
