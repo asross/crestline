@@ -318,13 +318,16 @@ impl MipData {
             if self.sc().num_restarts == 0 {
                 let sc = self.sc();
                 sc.firstrootlpiters = sc.total_lp_iterations;
-                if o.mip_root_lp_effort_from_basis {
+                if o.mip_root_lp_effort_from_basis || race == 2 {
                     // the root LP's effort, however it was solved: a dual
                     // simplex from the slack basis brings each basic
                     // structural column in, at 1.0-2.4 iterations per
                     // column on the dispatch and MIPLIB LPs (the IPX
                     // crossover basis has as many basic columns, within 3%
-                    // on the dispatch LPs)
+                    // on the dispatch LPs). Always when IPX alone solved
+                    // it (mip_root_lp_ipx): its count is the crossover's
+                    // few iterations, and the graph LNS budgets that scale
+                    // with it would be too small to search at all
                     let effort = 2 * lp.num_basic_cols();
                     sc.root_lp_credit = effort - sc.firstrootlpiters;
                     sc.firstrootlpiters = effort;

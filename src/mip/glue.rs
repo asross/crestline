@@ -809,6 +809,23 @@ impl Lp {
     pub fn infeasible_conflict(&self, w: &Worker, localdom: &Dom) {
         c!(lp_infeasible_conflict, self.p, w.p, localdom.p)
     }
+    /// whether a solve that stops at its iteration limit is left there
+    /// (no IPM basis)
+    pub fn set_no_ipm_basis(&self, v: bool) {
+        // SAFETY: the live relaxation, not otherwise borrowed here
+        unsafe { (*self.rs).no_ipm_basis = v };
+    }
+    /// the last solve stopped at its iteration limit
+    pub fn hit_iteration_limit(&self) -> bool {
+        self.lph().model_status() == crate::lp_data::run::MS_ITERATION_LIMIT
+    }
+    /// dual_simplex_cost_perturbation_multiplier
+    pub fn cost_perturbation(&self) -> f64 {
+        self.lph().opts.dual_simplex_cost_perturbation_multiplier
+    }
+    pub fn set_cost_perturbation(&self, v: f64) {
+        self.lph().set_option("dual_simplex_cost_perturbation_multiplier", OptValue::Double(v));
+    }
     pub fn put_iterate(&self) -> bool {
         self.lph().put_iterate() == crate::lp_data::Status::Ok
     }

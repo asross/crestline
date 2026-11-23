@@ -1427,6 +1427,76 @@ The models whose quick search closes the gap with its neighbourhoods
 there. The public check models (`check/instances`, 1% gap, one thread)
 end with the same status as before.
 
+## Graph LNS LPs that stall, and the end of a search's LP budget (2026-11-23)
+
+**The case.** The gas-boiler model with the boilers left to the solver,
+high price (two threads): one or two of the flip search's LP re-solves
+per solve run to the per-LP iteration limit (a quarter of the first root
+LP's count, about 1.5 s here) and are then solved again from scratch by
+the interior point method, 2.6 s each: 2.6-5.0 s of solves of 11-13 s
+(seeds 0-3).
+
+**Why.** Graph LNS's LPs run the dual simplex without cost perturbation
+(`mip_graph_lns_cost_perturbation` off: cheaper on the ordinary
+re-solve, see [performance.md](./performance.md)), and without it a
+degenerate re-solve can stall. `HighsLpRelaxation::run` answers an
+iteration limit with the basis of a full interior point solve (IPX with
+presolve, then the simplex from its basis). With the perturbation on for
+every LP the same four seeds take 8.1-10.8 s (one such solve left on two
+of them).
+
+The same answer met a search's own budget: graph LNS caps each LP at
+what is left of the search's LP iterations, so the last LPs of a search
+that runs out stop at that cap, each then solved by interior point for
+nothing (`ovn_0636_g147`, two threads, seed 0: three in a row, 0.6 s
+each, at the end of the quick search).
+
+**The change** (in `GraphLns::resolve`; only without
+`mip_graph_lns_cost_perturbation`, so the C++ path is as it was):
+- an LP that stops at the per-LP limit goes on with HiGHS's cost
+  perturbation, and only if it stops again is it solved by interior
+  point;
+- an LP that stops because the search's budget ends is left there, and
+  once the budget is used up no LP is solved: the dive, the
+  neighbourhood's tree search and the flip search stop.
+
+**Results.** The dispatch suite, paired against main on the runners
+(bench-dispatch, 180 s, seeds 0-15, 36 models, 576 pairs per
+architecture): the paths change only where a limit was met.
+
+| | one thread (arm64) | two threads (arm64 / x86-64) |
+|---|---|---|
+| time to 1%, geometric mean over the models | 0.996 | 1.000 / 0.977 |
+| solved, of 576 | 533 -> 535 | 555 -> 557 / 555 -> 559 |
+| time to within 1% of the best known | 0.999 [0.997, 1.001] | 0.998 [0.995, 1.001] / 0.996 [0.991, 1.001] |
+| `hard_10-03_1340` gap at the limit | -0.046 ± 0.039 | -0.011 ± 0.028 / +0.001 ± 0.038 |
+
+By model at two threads the solved ones are within their seeds' spread
+(`ovn_0652_g157` 0.84 [0.73, 0.96] and `tick_1018_0340` 0.87 [0.78,
+0.97] on x86-64, `ovn_0716_g158` 1.15 [1.02, 1.29] on arm64, neither on
+the other architecture); `diverse_10-01_0052` is solved in 13 and 15 of
+16 runs (11 and 11).
+
+The gas-boiler model, boilers free (M1, `CRESTLINE_INSTR_CLOCK=10`, two
+threads, seeds 0-7, time to 1%; the first root LP is about 17):
+
+| | before | after |
+|---|---|---|
+| high price | 30 31 30 28 30 34 23 18 (shifted geometric mean 27.7) | 20 22 20 20 22 24 20 19 (20.8, 0.75) |
+| lower price | 16 16 16 17 22 18 17 16 (17.2) | 16 17 16 17 16 20 19 16 (17.1) |
+
+The heater-HTF ticks and the boilers-off models are unchanged (4 seeds,
+`CRESTLINE_INSTR_CLOCK=24`: 28.1 against 27.8 in the sum over the four
+HTF ticks, 9.0 against 9.1 on the boilers-off model at the lower price).
+
+**`mip_root_lp_ipx` by itself** (off by default) left the first root
+LP's iteration count at the crossover's few hundred, and the graph LNS
+budgets that scale with it near zero: every LP of the root dive stopped
+at a limit of one iteration and was solved by interior point, 60 s
+without an incumbent on `dm_full_pert_s1_ramp` (3.4 s by default). The
+count is now the estimated effort whenever IPX alone solves the root LP
+(as `mip_root_lp_effort_from_basis` does): 4.3 s.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,

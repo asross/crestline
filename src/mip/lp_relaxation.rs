@@ -257,6 +257,10 @@ pub struct LpRelax {
     /// The basis inverse rows and dual rays (HighsLpRelaxation::row_ep;
     /// it only grows)
     row_ep: OwnedHVec,
+    /// A solve that stops at its iteration limit is left there, without
+    /// the IPM basis (graph LNS, for its budget and its first try of an
+    /// LP)
+    pub no_ipm_basis: bool,
 }
 
 impl Drop for LpRelax {
@@ -474,6 +478,7 @@ impl LpRelax {
             out_inds: Vec::new(),
             out_vals: Vec::new(),
             row_ep: OwnedHVec::new(0),
+            no_ipm_basis: false,
         });
         s.sync();
         s
@@ -1369,7 +1374,7 @@ impl LpRelax {
                 }
             }
             MS_ITERATION_LIMIT => {
-                if !self.mip().get().m.submip && resolve_on_error {
+                if !self.mip().get().m.submip && resolve_on_error && !self.no_ipm_basis {
                     drop(lb);
                     self.op(4);
                     return self.run(false);
