@@ -360,6 +360,8 @@ pub struct MipOptions {
     pub mip_symmetry_static_orbitopes: bool,
     pub mip_graph_lns_flip_first: bool,
     pub mip_graph_lns_flip_memory: bool,
+    pub mip_graph_lns_stall_nodes: i32,
+    pub mip_heuristic_min_gap_ratio: f64,
 }
 
 /// The original model (for solutions in the original space)

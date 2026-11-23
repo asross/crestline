@@ -334,8 +334,19 @@ impl GraphLns<'_> {
         *exhausted = false;
         let mut st = lp_status::OPTIMAL;
         let mut solved = true; // the LP is solved on entry
+        // Crestline (mip_graph_lns_stall_nodes): a search that has not found
+        // an incumbent for that many LP solves stops. A neighbourhood that
+        // pays does so early (on the hard dispatch ticks the first
+        // incumbent of a search comes within 100 solves in nine of ten),
+        // while a quarter to a half of all solves went to searches that ran
+        // to the node limit without one.
+        let stall = self.m.opts.mip_graph_lns_stall_nodes;
+        let mut last_incumbent = 0;
         loop {
             if self.w.terminated() || self.m.check_limits() || self.budget_used_up() {
+                break;
+            }
+            if stall > 0 && nodes - last_incumbent >= stall {
                 break;
             }
             if !solved {
@@ -346,6 +357,7 @@ impl GraphLns<'_> {
             let prune = !usable(st) || self.lp.objective() >= self.w.upper_limit();
             if !prune {
                 if self.try_incumbent(st) {
+                    last_incumbent = nodes;
                     if self.within_gap() {
                         break;
                     }
