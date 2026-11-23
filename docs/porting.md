@@ -137,6 +137,14 @@ unless it is anonymized.
   decision column in a row of one of its columns has changed (see
   dispatch.md); the C++ tries it again after every improving move. The
   oracle sets it to false for crest.
+- **A neighbourhood search that stalls (`mip_graph_lns_stall_nodes`,
+  100 by default):** graph LNS stops a neighbourhood's tree search after
+  that many LP solves without a new incumbent (see dispatch.md); the C++
+  runs it to the node limit. The oracle sets it to 0 for crest.
+- **A gap that is nearly closed (`mip_heuristic_min_gap_ratio`, 1.1 by
+  default):** no root reduced cost, RENS or RINS heuristic while the gap
+  is at most that many times the target gap (see dispatch.md). The
+  oracle sets it to 0 for crest.
 
 ## Rules for each step
 

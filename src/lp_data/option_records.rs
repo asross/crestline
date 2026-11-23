@@ -954,7 +954,7 @@ pub const RECORDS: &[Meta] = &[
         type_: DOUBLE,
         advanced: false,
         name: "mip_heuristic_min_gap_ratio",
-        description: "The MIP solver runs no root reduced cost, RENS or RINS heuristic while the gap is at most this many times the target gap (0: no such rule)",
+        description: "With mip_rel_gap of at least 0.001, the MIP solver runs no root reduced cost, RENS or RINS heuristic while the gap is at most this many times the target gap (0: no such rule)",
         bool_default: false,
         int: (0, 0, 0),
         dbl: (0.0, 1.1, f64::INFINITY),
