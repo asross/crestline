@@ -16,7 +16,7 @@ use super::cuts::sort::{partition, pdqsort};
 use super::domain::{DomChg, Reason, LOWER, REASON_BRANCHING};
 use super::glue::{self, lp_status, source, Dom, Lp, MipData, SearchH, Worker, MODEL_STATUS_INFEASIBLE, MODEL_STATUS_NOTSET};
 use super::heuristics;
-use super::lns::LnsMove;
+use super::lns::{FlipMemory, LnsMove};
 use super::search::FracInt;
 use crate::util::fma::ClangFma;
 use crate::util::hash::hash_bytes;
@@ -75,6 +75,7 @@ pub struct Heur {
     pub(crate) lns_moves: [LnsMove; 4],
     pub(crate) lns_flip_obj: f64,
     pub(crate) lns_flip_next: i32,
+    pub(crate) lns_flip_memory: FlipMemory,
     success_observations: f64,
     num_success_observations: i32,
     infeas_observations: f64,
@@ -168,6 +169,7 @@ impl Heur {
             lns_moves: [LnsMove::default(); 4],
             lns_flip_obj: INF,
             lns_flip_next: 0,
+            lns_flip_memory: FlipMemory::default(),
             success_observations: 0.0,
             num_success_observations: 0,
             infeas_observations: 0.0,
@@ -226,6 +228,7 @@ impl Heur {
         self.isolated_cols = false;
         self.lns_moves = [LnsMove::default(); 4];
         self.lns_flip_obj = INF;
+        self.lns_flip_memory.clear();
         let feastol = m.feastol();
         let (up, down) = (m.uplocks(), m.downlocks());
         let clq = m.clique();

@@ -933,6 +933,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_graph_lns_flip_memory",
+        description: "Whether graph LNS's flip search leaves a move that did not improve untried until a decision column in a row of one of its columns has changed",
+        bool_default: true,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,
