@@ -821,11 +821,7 @@ impl Heur {
         // keeps a flip only if the LP improves: 18 LP solves took a 13% gap
         // to under 1%, where the neighbourhoods had used up the budget on
         // the banks' switches around boilers left off.)
-        if !deep
-            && m.opts.mip_graph_lns_flip_first
-            && s.h.isolated_cols
-            && m.upper_bound() - m.lower_bound() > 3.0 * (m.upper_bound() - m.optimality_limit())
-        {
+        if !deep && m.opts.mip_graph_lns_flip_first && s.h.isolated_cols && !s.within_gap() {
             s.flip_search(NODE_LIMIT);
         }
         let mut it = 0;
