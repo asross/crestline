@@ -1331,7 +1331,7 @@ then two threads, arm64 / x86-64):
 | `tick_1018_0340` | solved 4 -> 10 of 16 | 0.82 / 0.93 |
 | `tick_1018_0420` | solved 5 -> 11 | 0.96 / 0.93 |
 | `diverse_10-01_0052` | solved 4 -> 2 | solved 9 -> 12 / 12 -> 12 |
-| `hard_10-03_1340` (never solved) | gap -0.026 ± 0.07 | gap -0.003 / +0.001 |
+| `hard_10-03_1340` (never solved) | gap -0.026 ± 0.082 | gap -0.003 ± 0.046 / -0.011 ± 0.041 |
 
 The models whose quick search closes the gap with its neighbourhoods
 (`dm_full_*`, `dm_medium_*`) are within 1%: the flip search hardly runs
