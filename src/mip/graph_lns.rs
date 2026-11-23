@@ -775,10 +775,7 @@ impl Heur {
         // (a boiler's on/off column, tied to the rest only through its
         // continuous fire) are reached by no neighbourhood at all: on a
         // gas-boiler dispatch model 18 flips took a 13% gap to under 1%.
-        if !deep
-            && m.opts.mip_graph_lns_flip_first
-            && m.upper_bound() - m.lower_bound() > 3.0 * (m.upper_bound() - m.optimality_limit())
-        {
+        if !deep && m.opts.mip_graph_lns_flip_first && m.lower_bound() <= m.optimality_limit() {
             s.flip_search(NODE_LIMIT);
         }
         let mut it = 0;
