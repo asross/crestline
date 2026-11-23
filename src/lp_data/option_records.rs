@@ -924,7 +924,7 @@ pub const RECORDS: &[Meta] = &[
         type_: BOOL,
         advanced: false,
         name: "mip_graph_lns_flip_first",
-        description: "Whether graph LNS's quick search starts with its flip search, rather than ending with it, when some decision column shares no row with another integer column and the root dive leaves the incumbent over three times the target gap from the bound",
+        description: "Whether graph LNS's quick search starts with its flip search, rather than ending with it, when the root dive leaves the incumbent over three times the target gap from the bound",
         bool_default: true,
         int: (0, 0, 0),
         dbl: (0.0, 0.0, 0.0),

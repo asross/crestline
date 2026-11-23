@@ -81,17 +81,6 @@ pub fn decision_cols(
     out
 }
 
-/// Crestline: whether some decision column shares no row with another
-/// integer column (a boiler's on/off column, tied to the rest of the model
-/// only through its continuous fire). No breadth-first neighbourhood
-/// reaches such a column from the columns around it: only the flip search,
-/// and a seed that happens to be one, move it.
-pub fn has_isolated_cols(g: &Graph, integrality: &[u8], decision: &[i32]) -> bool {
-    decision.iter().any(|&c| {
-        g.col(c as usize).all(|p| g.row(g.a_index[p] as usize).all(|q| g.ar_index[q] == c || integrality[g.ar_index[q] as usize] == 0))
-    })
-}
-
 /// HighsPrimalHeuristics::LnsMove
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -409,9 +398,6 @@ mod tests {
         };
         let d = decision_cols(&g, &[f64::NEG_INFINITY; 2], &[1.0; 2], &[1; 3], &[0, 1, 2]);
         assert_eq!(d, vec![1]); // x0 is implied, x1 not (shares a row with x0), x2 implied
-        // x1 shares its rows with integer columns; with x0 and x2 continuous it is isolated
-        assert!(!has_isolated_cols(&g, &[1; 3], &d));
-        assert!(has_isolated_cols(&g, &[0, 1, 0], &d));
         let mut lns = Lns::new(&g, 2, &[0, 1, 2]);
         let mut rng = HighsRandom::new(0);
         let z = [0.0; 3];

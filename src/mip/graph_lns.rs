@@ -8,7 +8,7 @@
 use super::cuts::sort::pdqsort;
 use super::domain::{DomChg as Chg, Reason, LOWER as LO, REASON_BRANCHING, UPPER as UP};
 use super::glue::{self, lp_status, source, Bnd, Dom, Lp, MipData, Worker};
-use super::lns::{decision_cols, has_isolated_cols, select_type, Graph, Lns};
+use super::lns::{decision_cols, select_type, Graph, Lns};
 use super::primal::{cmax, cmin, Heur};
 use crate::lp_data::LogType;
 use crate::util::fma::ClangFma;
@@ -639,7 +639,6 @@ impl Heur {
             return;
         }
         self.decisioncols = decision_cols(&mip_graph(m), m.row_lower(), m.row_upper(), m.integrality(), self.intcols());
-        self.isolated_cols = has_isolated_cols(&mip_graph(m), m.integrality(), &self.decisioncols);
     }
 
     /// graphLNS: root dive and LNS from the incumbent: quick dived
@@ -764,21 +763,20 @@ impl Heur {
         }
         let mut deep_tries = [0i32; 4];
         s.screen = Dom::copy(&gd);
-        // Crestline (mip_graph_lns_flip_first): decision columns that no
-        // neighbourhood reaches from the others (lns::has_isolated_cols) are
-        // moved by the flip search,
-        // which the quick search only runs at its end, if its LP budget
-        // lasts. With such columns and an incumbent still over three target
-        // gaps from the bound, it runs first. (On a gas-boiler dispatch
-        // model the root dive rounds a boiler off wherever the LP fires it
-        // below half its low fire, which leaves unserved load at a high
-        // price. Each boiler's flip improves on its own, and the search
-        // keeps a flip only if the LP improves: 18 LP solves took a 13% gap
-        // to under 1%, where the neighbourhoods had used up the budget on
-        // the banks' switches around boilers left off.)
+        // Crestline (mip_graph_lns_flip_first): with the incumbent still over
+        // three target gaps from the bound after the root dive, the flip
+        // search first, rather than at the end of the quick search if its
+        // LP budget lasts. A dive that leaves a gap this wide has usually
+        // rounded some columns the wrong way where each can be put right
+        // by itself (first improvement, in order of the gain the reduced
+        // costs promise, an LP solve each): cheaper there than the
+        // neighbourhoods, which then start from a better point. And the
+        // decision columns that share no row with another integer column
+        // (a boiler's on/off column, tied to the rest only through its
+        // continuous fire) are reached by no neighbourhood at all: on a
+        // gas-boiler dispatch model 18 flips took a 13% gap to under 1%.
         if !deep
             && m.opts.mip_graph_lns_flip_first
-            && s.h.isolated_cols
             && m.upper_bound() - m.lower_bound() > 3.0 * (m.upper_bound() - m.optimality_limit())
         {
             s.flip_search(NODE_LIMIT);
