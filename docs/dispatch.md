@@ -94,6 +94,10 @@ non-deterministic:
   solver; the main solver takes the helper's bound while at the root and
   its cuts once the helper's cut loop is done ("Concurrent LNS helper
   thread started").
+- While the gap after the root cuts is over three target gaps, the main
+  solver runs the deep search too, rather than its sub-MIP heuristics and
+  the tree (see "With a helper and a wide gap, the main solver joins the
+  deep search").
 - `mip_concurrent_crossover` (off by default): the two search independently
   until the helper crosses its incumbent with the main solver's: the
   integer columns where they agree are fixed and the rest solved as a
