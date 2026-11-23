@@ -94,6 +94,10 @@ non-deterministic:
   solver; the main solver takes the helper's bound while at the root and
   its cuts once the helper's cut loop is done ("Concurrent LNS helper
   thread started").
+- While the gap after the root cuts is over three target gaps, the main
+  solver runs the deep search too, rather than its sub-MIP heuristics and
+  the tree (see "With a helper and a wide gap, the main solver joins the
+  deep search").
 - `mip_concurrent_crossover` (off by default): the two search independently
   until the helper crosses its incumbent with the main solver's: the
   integer columns where they agree are fixed and the rest solved as a
@@ -1102,8 +1106,8 @@ high-price model now takes 11.3, 15.1 and 13.5 s.
   probes take 110 simplex iterations each even with the banks fixed
   (16000-20000 in the root dive), and the dive then fails.
 - *The main solver joining the helper's deep search while the gap is
-  wide* (a separate change) does not help here by itself: 22-161 s
-  (54.9).
+  wide* (see "With a helper and a wide gap, the main solver joins the
+  deep search") does not help here by itself: 22-161 s (54.9).
 - *A lazy dive* (integral candidates left free for the LP to move, 1-16
   fractional ones fixed per LP solve, as SCIP's fractional diving): on
   the boilers-off model the first incumbent's gap goes from 101% to
@@ -1143,18 +1147,125 @@ this; CPLEX's and SCIP's root bounds are weaker than crest's.
 
 **Measured, not kept:**
 - The main solver's deep graph LNS with a helper running even when the
-  gap after the root is over three target gaps (the helper already does
-  this; the main solver otherwise runs RENS, whose sub-MIP spends 30 s on
-  a root LP from scratch here, then strong branching, 6-14 nodes by
-  180 s). On this model: mean gap 8.2% (14 seeds) against 9.8% (22), but
-  the same change gated to gaps over ten target gaps gave 9.9% (8 other
-  seeds), on which it takes the same path: per-seed noise (5.5-13.5% for
-  one binary) swamps it. Elsewhere `diverse_10-01_0052` 1.26-1.29 (one
-  run fewer solved in both screens), the boilers-free high-price twin
-  1.01-1.17, `tick_1018_0340` 0.84-1.01.
+  gap after the root is over three target gaps: first measured by wall
+  clock on a loaded machine, where per-seed noise swamped it; measured
+  again by instruction count and kept (see the next section).
 - More root cut rounds (stall limit 30 rounds instead of 3), one thread:
   root bound 0.5% of the objective stronger, 10 s more root; well short
   of the 2.6% needed, not screened.
+
+**Why no bound closes it (2026-11-23).** The banks charge by on/off
+switches, a step at a time, and a module's steam output is the smaller of
+a cap and a fraction of its state of charge. The LP holds a bank exactly
+at a limit (a module's state-of-charge cap before the lull, the knee of
+its output during it) with a fractional switch, a duty cycle within the
+step; an integer plan has to switch whole steps on and off around the
+limit, overshooting or falling short each time. This is the relaxed
+control with a state-constrained arc of mixed-integer optimal control,
+whose integer approximations chatter and whose integrality gap is
+proportional to the step width (Sager, Bock and Diehl, Math. Program.
+133, 2012; Sager, Jung and Kirches, Math. Methods Oper. Res. 73, 2011).
+The shortfall is small in energy, but at this price 1% of the objective
+is one part in ten thousand of the steam demand over the horizon.
+Measured against the best solution known (from the 90 min run):
+
+| bound | above the best known |
+|---|---|
+| LP relaxation | 11.5% |
+| crest, root cuts, 2 threads | 5.3% |
+| per-bank Lagrangian dual, solved by column generation (the LP over each bank's convex hull; a block MIP per bank per iteration, 53 iterations, 17 min on 5 cores) | 4.3-4.5% |
+| SCIP 10, one thread, 68 min, 4700 nodes (its incumbent 2.6% worse than the best known) | 4.6% |
+| crest, 4 threads, 90 min | 3.1% |
+
+- So even every bank's convex hull, which no cut family on a bank's rows
+  can beat (path or lot-sizing cuts on longer aggregations of a module's
+  chain included), leaves over four target gaps. What is left is between
+  banks: each step's charging limit is a knapsack over the banks'
+  different powers, and the plans the blocks prefer do not fit together.
+- The restricted master solved as an integer program (one generated
+  schedule per bank, 740 columns): its optimum is the best solution
+  known, whose columns were in it; the generated columns add nothing.
+- For the application: the gap is the price of whole-step switching. With
+  the switches of the hourly steps relaxed to duty cycles and only the
+  sub-hourly first steps binary, the model reaches 1% in 9 s and its
+  plan is 10.2% better than the best all-binary plan known; binary
+  for the first third of the steps, 1% in 180 s and 5.2% better.
+
+**Incumbents: tried offline, not kept.** From the root LP (Python
+prototypes, an LP for the continuous columns once the switches are
+fixed; first incumbent of the root dive for comparison: 45% worse than
+the best known):
+- sum-up rounding of each bank's switches (cumulative rounding along
+  time, thresholds 0.5 to 1): infeasible at every threshold, the banks'
+  pulses colliding in the per-step charging limit;
+- relax-and-fix in time order, a period per LP solve, to the nearest:
+  66% worse than the best known (a period rounded at once overdraws its
+  charging limit, and the LP pays with the electric boiler);
+- one column per LP solve, integral ones left free: 20% worse (least
+  fractional first) and 17% worse (earliest period first), for 550-650
+  LP solves: this is the lazy dive of "Isolated decision columns: the
+  flip search first";
+- block coordinate descent from an early incumbent, one bank (or two) at
+  a time solved exactly with every other bank's columns, continuous ones
+  included, held: stalls 12% from the best known with single banks and
+  4.6% with pairs, where graph LNS, on the full LP, ends 1-4% from it.
+
+## With a helper and a wide gap, the main solver joins the deep search (2026-11-23)
+
+**The case.** The gas-boiler model with the boilers held off and the high
+price (above): no bound closes it, so what 180 s can deliver is the
+incumbent, and at 2 threads the incumbents came from one thread. With the
+gap after the root over three target gaps, the main solver does not run
+the deep search (one thread's rule: a gap that wide after the quick
+search means graph LNS does not suit the model). Its time went to RENS (a
+45 s nest of sub-MIPs, their root LPs solved from scratch) and 6-14 nodes
+of strong branching, which found nothing, while the helper's deep search
+found every incumbent and was still descending at 150 s (90% of its time
+in LP re-solves, about 150 neighbourhood nodes a second on this LP).
+
+**The change.** After the root cuts, with a helper and a gap over three
+target gaps, the main solver runs the deep search too, in rounds for as
+long as a round (with what the helper found meanwhile) closes 1% of the
+gap and the gap stays that wide. Both search from the best incumbent of
+either, each with its own seed. No option. With one thread nothing
+changes.
+
+**Results.** Local (M1, instruction clock, so load-independent; 2
+threads, 1% gap), the boilers-off high-price model over 8 seeds, at two
+budgets: 1800G instructions, which is 75 s of the idle M1's two threads,
+and 4320G, its 180 s. Production's hardware is slower than the M1, so its
+180 s lies between the two.
+
+| | main | with the change |
+|---|---|---|
+| 75 s budget: gap, mean (range) | 10.7% (7.5-14.8) | 8.0% (6.8-10.6) |
+| ... incumbent against the best known | 4.5% worse (1.6-8.1) | 2.0% worse (0.9-3.9) |
+| 180 s budget: gap, mean (range) | 7.8% (6.4-9.8) | 7.4% (5.9-9.3) |
+| ... incumbent against the best known | 2.0% worse (0.7-3.4) | 1.6% worse (0.2-3.3) |
+
+So the change brings the incumbents of 180 s forward to 75 s; at 180 s
+on a fast machine one thread's search has flattened anyway and the gain
+is small. (CPLEX, 4 threads, 300 s on an M3 Pro: 8.5%.) The lower-price
+twin and the four heater-HTF ticks (4 seeds each, the 75 s budget) take
+the same time (ratios 0.97-1.06, the gate not firing), as do the 8
+dispatch screen models (4 seeds: ratios 0.91-1.19, each within its
+seeds' spread).
+
+Paired against main on the runners (bench-dispatch run 45112620802: 2
+threads, 180 s, 16 seeds, the 36 dispatch models, 576 pairs per
+architecture):
+
+| | arm64 | x86_64 |
+|---|---|---|
+| runs solved | 554 -> 553 | 555 -> 556 |
+| time on runs both solve (geometric mean over models) | 0.998 | 0.998 |
+| time to within 1% of the best known | 0.999 [0.995, 1.003] | 0.996 [0.992, 1.000] |
+| mean primal gap, B - A | -0.001 ± 0.003 | -0.002 ± 0.003 |
+| `diverse_10-01_0052` solved | 10 -> 9 | 11 -> 12 |
+| `ovn_1148_g105` time (the one interval off 1 by over 1%) | 1.095 [1.010, 1.187] | 1.044 [0.916, 1.190] |
+
+On these models the gap after the root cuts is rarely over three target
+gaps, so the change seldom acts.
 
 ## Tried and rejected
 
@@ -1206,8 +1317,10 @@ this; CPLEX's and SCIP's root bounds are weaker than crest's.
   each sweep over the rows gains a share of the target gap, or with no
   incumbent: the heater-HTF ticks 1.2-2.5 times slower (see "The path
   separator's work limit at the root").
-- The main solver's deep graph LNS beside a helper when the root gap is
-  wide (see "Where the truth is on the gas-boiler model"): within seed
-  noise there, slower on `diverse_10-01_0052` and a gas-boiler twin.
 - Rounding zero-cost on/off columns up in the dives, probing them, and
   lazy dives (see "Isolated decision columns: the flip search first").
+- Sum-up rounding, time-ordered relax-and-fix, and block coordinate
+  descent over banks, as constructions or moves on the gas-boiler model
+  (see "Where the truth is on the gas-boiler model").
+- `simplex_update_limit` 60 or 200 for the LNS LPs (more refactorization):
+  the same progress per instruction on the gas-boiler model.

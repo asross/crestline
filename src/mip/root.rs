@@ -647,9 +647,23 @@ impl MipData {
             self.publish_root_cuts();
             {
                 let sc = self.sc();
+                // Crestline: the gap is still over three target gaps and a
+                // helper is at its deep search: the main solver joins it.
+                // (With one thread a gap this wide sends the time to the
+                // sub-MIP heuristics and the tree instead. On a gas-boiler
+                // dispatch model those found nothing in 180 s, and every
+                // incumbent came from the helper's one thread.)
+                let wide = |m: &MipData| {
+                    let sc = m.sc();
+                    m.own_lns().is_some()
+                        && !m.submip
+                        && sc.upper_bound < INF
+                        && sc.upper_bound - sc.lower_bound > 3.0 * (sc.upper_bound - sc.optimality_limit)
+                };
                 if run_graph_lns
                     && !self.rootlpsol().is_empty()
                     && (self.concurrent_helper
+                        || wide(self)
                         || (sc.lns_quick_improved
                             && sc.upper_bound - sc.lower_bound <= 3.0 * (sc.upper_bound - sc.optimality_limit)))
                 {
@@ -662,6 +676,21 @@ impl MipData {
                     if sc.upper_bound < lns_upper_bound && !self.submip {
                         sc.lns_tree_wait = 1000i64.max(lns_iters + sc.total_lp_iterations);
                         sc.lns_tree_next = sc.total_lp_iterations + sc.lns_tree_wait;
+                    }
+                    // while the gap stays wide, further rounds as long as one
+                    // (with what the helper found meanwhile) closes 1% of it
+                    let mut ub = lns_upper_bound;
+                    let mut round = 0;
+                    while round < 50
+                        && wide(self)
+                        && self.sc().upper_bound < ub - 0.01 * (ub - self.sc().lower_bound)
+                        && !self.check_limits_rs(0)
+                    {
+                        ub = self.sc().upper_bound;
+                        self.sync_concurrent_lns();
+                        self.heur(w, heur::GRAPH_LNS_DEEP_ROOT);
+                        self.heur(w, heur::FLUSH);
+                        round += 1;
                     }
                     // a concurrent LNS helper keeps searching from the best
                     // solution either solver has found
