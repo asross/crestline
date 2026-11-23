@@ -427,6 +427,8 @@ impl MipSolver {
                 mip_symmetry_static_orbitopes: o.mip_symmetry_static_orbitopes,
                 mip_graph_lns_flip_first: o.mip_graph_lns_flip_first,
                 mip_graph_lns_flip_memory: o.mip_graph_lns_flip_memory,
+                mip_graph_lns_stall_nodes: o.mip_graph_lns_stall_nodes,
+                mip_heuristic_min_gap_ratio: o.mip_heuristic_min_gap_ratio,
             },
             helper_pool: self.concurrent_lns,
             lns_target: self.lns_target_reached,

@@ -542,6 +542,20 @@ impl MipData {
     /// moreHeuristicsAllowed
     pub fn more_heuristics_allowed(&self) -> bool {
         let sc = self.sc();
+        // Crestline (mip_heuristic_min_gap_ratio): with the gap nearly
+        // closed, the tree: a few nodes move the bound that far, where the
+        // sub-MIP heuristics (root reduced cost, RENS, RINS, each with its
+        // own inside) took most of the solve and found nothing. For a
+        // target gap of at least 0.1%, as graph LNS: measured there.
+        let ratio = self.opts.mip_heuristic_min_gap_ratio;
+        if ratio > 0.0
+            && self.opts.mip_rel_gap >= 1e-3
+            && !self.submip
+            && sc.upper_bound < f64::INFINITY
+            && sc.upper_bound - sc.lower_bound <= ratio * (sc.upper_bound - sc.optimality_limit)
+        {
+            return false;
+        }
         // the quick graph-LNS search, early in the root node, has a budget
         // of its own
         let heur_lp_iterations = sc.heuristic_lp_iterations - sc.lns_quick_lp_iterations;

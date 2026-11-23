@@ -53,7 +53,9 @@ times the target gap of the bound; otherwise the model does not suit graph
 LNS and the usual root heuristics run; but see `mip_graph_lns_deep_early`
 below). Neighbourhoods are smaller and are
 searched by a depth-first branch and bound with a node limit (300 LP
-solves), their size adapting to what that limit exhausts. A UCB bandit
+solves; a search that goes 100 without a new incumbent stops, see "A
+neighbourhood search that stalls"), their size adapting to what that
+limit exhausts. A UCB bandit
 picks, among four moves, the one closing the most gap per LP iteration:
 - BFS over all rows, searched by branch and bound;
 - BFS over rows with at most four decision columns (chains, such as one
@@ -224,6 +226,8 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_lp_scaling` | false: the LPs of MIPs of at least 10000 rows (before presolve) are solved unscaled (true: scaled, as in HiGHS; see [performance.md](./performance.md)) |
 | `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when the root dive leaves the incumbent within three target gaps of the bound, or when some decision column shares no row with another integer column (false: it ends with it, as the C++; see "The flip search first") |
 | `mip_graph_lns_flip_memory` | true: the flip search leaves a move that did not improve untried until a decision column in a row of one of its columns has changed (false: as the C++; see "The flip search's memory of failed moves") |
+| `mip_graph_lns_stall_nodes` | 100: graph LNS stops a neighbourhood's tree search that has gone this many LP solves without a new incumbent (0: only at the node limit, as the C++; see "A neighbourhood search that stalls") |
+| `mip_heuristic_min_gap_ratio` | 1.1: with `mip_rel_gap` of at least 0.001, no root reduced cost, RENS or RINS heuristic while the gap is at most this many times the target gap (0: no such rule, as HiGHS; see "A gap that is nearly closed") |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
@@ -1497,6 +1501,94 @@ without an incumbent on `dm_full_pert_s1_ramp` (3.4 s by default). The
 count is now the estimated effort whenever IPX alone solves the root LP
 (as `mip_root_lp_effort_from_basis` does): 4.3 s.
 
+## A neighbourhood search that stalls (2026-11-23)
+
+**Where the nodes went.** On the ticks whose bound is ready long before
+the incumbent (two threads, seed 0, both solvers' searches), the deep
+search's gains come from its branch-and-bound neighbourhoods, 0.6 s
+each at the node limit of 300:
+
+| | searches | with a new incumbent | the first one within 25 / 100 nodes | searches at the node limit without one | their share of all nodes |
+|---|---|---|---|---|---|
+| `tick_1018_0340` | 75 | 40 | 22 / 38 | 12 | 26% |
+| `diverse_10-01_0052` (60 s) | 95 | 24 | 11 / 18 | 24 | 46% |
+
+A neighbourhood that pays does so early, and goes on paying (2.2-2.5
+incumbents per successful search, the last one anywhere up to the
+limit).
+
+**The change** (`mip_graph_lns_stall_nodes`, 100): a search stops once
+it has gone that many LP solves without a new incumbent. In 60 s that is
+twice the neighbourhoods searched and 18-45% fewer nodes per incumbent
+(`diverse_10-01_0052` 301 to 165, `tick_1018_0340` 125 to 102).
+
+**Results.** Paired on the runners (bench-dispatch, 180 s, seeds 0-15,
+36 models, 576 pairs per architecture), six configurations of one build:
+the two options of this and the next section off (which is main), each
+on, both on, this one at 50, and the next one at a ratio that never lets
+the sub-MIP heuristics run. Time to 1% as the geometric mean over the
+models of the ratio to the first; solved runs of 576:
+
+| | two threads (arm64 / x86-64) | one thread (arm64) |
+|---|---|---|
+| stall at 100 | 0.913 / 0.921; 556 -> 560 / 553 -> 558 | 0.948; 535 -> 529 |
+| stall at 50 | 0.900 / 0.924; 556 -> 555 / 553 -> 554 | 0.948; 535 -> 525 |
+| the gap ratio 1.1 (next section) | 0.972 / 0.994; 556 -> 557 / 553 -> 556 | 0.978; 535 -> 540 |
+| no sub-MIP heuristics at all | 0.977 / 0.991; 556 -> 556 / 553 -> 557 | 0.980; 535 -> 540 |
+| stall at 100 and the gap ratio 1.1 | 0.910 / 0.915; 556 -> 559 / 553 -> 555 | 0.923; 535 -> 535 |
+| ... primal gap at the end, difference | -0.003 ± 0.005 / -0.006 ± 0.003 | +0.000 ± 0.005 |
+
+Stall at 100 by model, two threads: the overnight ticks 0.68-0.88,
+`tick_1018_0340` 0.70 / 0.80, `tick_1018_0420` 0.77 / 0.87,
+`tick_1025_0004` 0.79 / 0.76, `tick_1025_0028` 0.81 / 0.82,
+`dm_small_windlull_noramp` 0.71 / 0.69; `diverse_10-01_0052` solved in
+15 and 14 of 16 runs (12 and 9), and `hard_10-03_1340` once (never
+before). At 50 the time is the same and fewer runs are solved. The
+models that the quick search solves are unchanged. At one thread the
+rule is faster on the same ticks (`ovn_0652_g157` 0.66,
+`tick_1018_0420` 0.72, `tick_1025_0004` 0.84, `lambda_20260930_142050_3c1b60d6`
+0.89) and the other overnight ticks are within their seeds' spread
+(1.08-1.37 with intervals from 0.7 to 2.1), but 6 fewer runs reach 1%
+in 180 s; the gap ratio of the next section gives those back.
+
+On the MIPLIB models that HiGHS solves in under a minute (62, 1% gap,
+one thread, x86-64; both options on against both off): the same
+objective on every model, shifted geometric mean time 0.993.
+
+Not kept: a node limit of 1000 with the same rule (4 seeds of six ticks,
+local: equal or slower).
+
+## A gap that is nearly closed (2026-11-23)
+
+**The case.** `dm_small_windlull_noramp` (two threads, seed 0): 1.03%
+after the root at 2.1 s, then 7.3 s in the root reduced cost and RENS
+sub-MIPs (34 of them with their own inside, ten deep; no incumbent from
+any), then 9 nodes of the tree move the bound the 0.03% that was
+missing. A sub-MIP of this model takes over a second (its presolve, root
+LP, cuts, feasibility jump and analytic centre), three times the model's
+own root LP.
+
+**The change** (`mip_heuristic_min_gap_ratio`, 1.1): while the gap is at
+most that many times the target gap, the solver runs no root reduced
+cost, RENS or RINS heuristic (`more_heuristics_allowed`): it goes to the
+tree, and graph LNS keeps its own schedule. Only for a target gap of at
+least 0.1% (`mip_rel_gap`), as graph LNS itself: that is where it was
+measured.
+
+**Results.** In the table of the section before: 0.972 / 0.994 by
+itself at two threads, with `dm_small_windlull_noramp` at 0.74 / 0.75
+(0.49 / 0.48 with both options) and `diverse_10-01_0052` solved in 13
+and 12 of 16 runs (12 and 9); `ovn_0636_g147` 1.09 [0.91, 1.31] / 1.11
+[1.02, 1.21], which goes with both options (0.78 / 0.86). Without the
+sub-MIP heuristics altogether the time is the same (0.977 / 0.991): on
+this suite they cost where the gap is nearly closed, and what they find
+elsewhere is not missed; they stay for the models graph LNS does not
+suit. At one thread the ratio by itself solves 5 more runs
+(`tick_1018_0340` in 13 of 16 against 11, `tick_1018_0420` in 12 against
+10) and takes `dm_small_windlull_noramp` to 0.51; the stall rule by
+itself solves 6 fewer there (`tick_1018_0340` in 8, `ovn_0716_g158` in
+14 of 16), and the two together as many as main, in 0.92 of its time.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -1563,3 +1655,9 @@ count is now the estimated effort whenever IPX alone solves the root LP
   makes progress, rather than with its two branch-and-bound
   neighbourhoods: of the five overnight ticks three slower (1.1-1.4) and
   two faster (0.9), over 4 seeds at one thread (M1, instruction clock).
+- The flip search trying partners beyond a candidate's first three once
+  those are known to fail (the first 3 of its first 8 or 20 not in the
+  memory): time 0.98 / 0.98 and 0.97 / 1.01 on the 18 harder models at
+  two threads, time to within 1% of the best known 1.00-1.02.
+- No sub-MIP heuristics in the main solver at all, again (see "A gap that
+  is nearly closed").
