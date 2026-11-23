@@ -1531,12 +1531,12 @@ models of the ratio to the first; solved runs of 576:
 
 | | two threads (arm64 / x86-64) | one thread (arm64) |
 |---|---|---|
-| stall at 100 | 0.913 / 0.921; 556 -> 560 / 553 -> 558 | RUNNER_1T_K100 |
-| stall at 50 | 0.900 / 0.924; 556 -> 555 / 553 -> 554 | RUNNER_1T_K50 |
-| the gap ratio 1.1 (next section) | 0.972 / 0.994; 556 -> 557 / 553 -> 556 | RUNNER_1T_NEAR |
-| no sub-MIP heuristics at all | 0.977 / 0.991; 556 -> 556 / 553 -> 557 | RUNNER_1T_NOSUB |
-| stall at 100 and the gap ratio 1.1 | 0.910 / 0.915; 556 -> 559 / 553 -> 555 | RUNNER_1T_BOTH |
-| ... primal gap at the end, difference | -0.003 ± 0.005 / -0.006 ± 0.003 | RUNNER_1T_PG |
+| stall at 100 | 0.913 / 0.921; 556 -> 560 / 553 -> 558 | 0.948; 535 -> 529 |
+| stall at 50 | 0.900 / 0.924; 556 -> 555 / 553 -> 554 | 0.948; 535 -> 525 |
+| the gap ratio 1.1 (next section) | 0.972 / 0.994; 556 -> 557 / 553 -> 556 | 0.978; 535 -> 540 |
+| no sub-MIP heuristics at all | 0.977 / 0.991; 556 -> 556 / 553 -> 557 | 0.980; 535 -> 540 |
+| stall at 100 and the gap ratio 1.1 | 0.910 / 0.915; 556 -> 559 / 553 -> 555 | 0.923; 535 -> 535 |
+| ... primal gap at the end, difference | -0.003 ± 0.005 / -0.006 ± 0.003 | +0.000 ± 0.005 |
 
 Stall at 100 by model, two threads: the overnight ticks 0.68-0.88,
 `tick_1018_0340` 0.70 / 0.80, `tick_1018_0420` 0.77 / 0.87,
@@ -1544,7 +1544,12 @@ Stall at 100 by model, two threads: the overnight ticks 0.68-0.88,
 `dm_small_windlull_noramp` 0.71 / 0.69; `diverse_10-01_0052` solved in
 15 and 14 of 16 runs (12 and 9), and `hard_10-03_1340` once (never
 before). At 50 the time is the same and fewer runs are solved. The
-models that the quick search solves are unchanged.
+models that the quick search solves are unchanged. At one thread the
+rule is faster on the same ticks (`ovn_0652_g157` 0.66,
+`tick_1018_0420` 0.72, `tick_1025_0004` 0.84, `lambda_20260930_142050_3c1b60d6`
+0.89) and the other overnight ticks are within their seeds' spread
+(1.08-1.37 with intervals from 0.7 to 2.1), but 6 fewer runs reach 1%
+in 180 s; the gap ratio of the next section gives those back.
 
 On the MIPLIB models that HiGHS solves in under a minute (62, 1% gap,
 one thread, x86-64; both options on against both off): the same
@@ -1578,7 +1583,11 @@ and 12 of 16 runs (12 and 9); `ovn_0636_g147` 1.09 [0.91, 1.31] / 1.11
 sub-MIP heuristics altogether the time is the same (0.977 / 0.991): on
 this suite they cost where the gap is nearly closed, and what they find
 elsewhere is not missed; they stay for the models graph LNS does not
-suit. RUNNER_1T_NEARTEXT
+suit. At one thread the ratio by itself solves 5 more runs
+(`tick_1018_0340` in 13 of 16 against 11, `tick_1018_0420` in 12 against
+10) and takes `dm_small_windlull_noramp` to 0.51; the stall rule by
+itself solves 6 fewer there (`tick_1018_0340` in 8, `ovn_0716_g158` in
+14 of 16), and the two together as many as main, in 0.92 of its time.
 
 ## Tried and rejected
 
