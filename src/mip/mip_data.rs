@@ -343,7 +343,7 @@ fn print_f64(val: f64, trailing: &str) -> String {
 }
 
 /// experiment: see more_heuristics_allowed
-const XNEAR2_DEFAULT: f64 = 0.0;
+const XNEAR2_DEFAULT: f64 = 1e9;
 
 impl MipData {
     pub fn op(&self, op: i32, w: Option<&Worker>, i: i64, x: f64) -> f64 {
