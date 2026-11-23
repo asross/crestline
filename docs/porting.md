@@ -127,10 +127,11 @@ unless it is anonymized.
   performance.md); `bench/quick_check.sh` and `bench/perf.py` set it to
   true for crest, so the oracle compares the same paths.
 - **Flip search first (`mip_graph_lns_flip_first`, on by default):**
-  with decision columns that share no row with another integer column
-  and a wide gap after the root dive, graph LNS's quick search starts
-  with its flip search (see dispatch.md); the C++ runs it last. The
-  oracle sets it to false for crest.
+  when the root dive leaves the incumbent within three target gaps of
+  the bound, or with decision columns that share no row with another
+  integer column, graph LNS's quick search starts with its flip search
+  (see dispatch.md); the C++ runs it last. The oracle sets it to false
+  for crest.
 - **The flip search's memory (`mip_graph_lns_flip_memory`, on by
   default):** a move that did not improve is not tried again until a
   decision column in a row of one of its columns has changed (see

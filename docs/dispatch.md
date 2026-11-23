@@ -39,10 +39,10 @@ the columns that determine them.
   time-indexed models, a time window); the rest are fixed to the incumbent,
   and if the neighbourhood LP (warm from the last LP solved, not the root
   basis) can beat the incumbent, it is dived.
-- A flip search polishes the incumbent. It runs first instead if some
-  decision column shares no row with another integer column and the root
-  dive left the incumbent over three target gaps from the bound (see
-  "Isolated decision columns: the flip search first").
+- A flip search polishes the incumbent. It runs first instead if the
+  root dive left the incumbent within three target gaps of the bound, or
+  if some decision column shares no row with another integer column (see
+  "The flip search first").
 - On large models it spends at most about one root LP's worth of LP
   iterations, so that where neighbourhood LPs are expensive (ramping
   models) the root cuts come early.
@@ -222,7 +222,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_graph_lns_deep_early` | false (see above and [performance.md](./performance.md)) |
 | `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
 | `mip_lp_scaling` | false: the LPs of MIPs of at least 10000 rows (before presolve) are solved unscaled (true: scaled, as in HiGHS; see [performance.md](./performance.md)) |
-| `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when some decision column shares no row with another integer column and the root dive leaves a wide gap (false: it ends with it; see "Isolated decision columns: the flip search first") |
+| `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when the root dive leaves the incumbent within three target gaps of the bound, or when some decision column shares no row with another integer column (false: it ends with it, as the C++; see "The flip search first") |
 | `mip_graph_lns_flip_memory` | true: the flip search leaves a move that did not improve untried until a decision column in a row of one of its columns has changed (false: as the C++; see "The flip search's memory of failed moves") |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
@@ -1037,7 +1037,9 @@ solved; it is the noisy one, A/A 1.15), `dm_full_pert_s1_ramp` 0.888,
 runs past the time limit were rerun.) MIPLIB checks (8 models, one
 thread): the same node counts on all eight, the limit never binds there.
 
-## Isolated decision columns: the flip search first (2026-11-23)
+## The flip search first (2026-11-23)
+
+### Isolated decision columns
 
 **The case.** The gas-boiler dispatch model with the boilers left to the
 solver and the high unserved-steam price: CPLEX (4 threads) reaches 1% in
@@ -1062,31 +1064,32 @@ which is zero when off and between its low and full fire when on. So:
 - Each missing boiler is an improving flip by itself.
 
 **The change.** `has_isolated_cols` (lns.rs): some decision column
-shares no row with another integer column. With such columns and an
-incumbent over three target gaps from the bound after the root dive, the
-quick search runs the flip search first (candidates in order of the gain
-their reduced cost promises, each kept only if the LP improves). The
-option `mip_graph_lns_flip_first` (on) is there for the oracle: two of
-its check models (`egout`, a fixed-charge network, and a
+shares no row with another integer column. With such columns the quick
+search runs the flip search first (candidates in order of the gain their
+reduced cost promises, each kept only if the LP improves). At first
+(#85) only with an incumbent over three target gaps from the bound after
+the root dive, which left the lower-price twin as it was; now at any gap
+still open. The option `mip_graph_lns_flip_first` (on) is there for the
+oracle: two of its check models (`egout`, a fixed-charge network, and a
 semi-continuous test model) have such columns and change path, so
 `bench/quick_check.sh` turns it off for the comparison with the C++
 app. No model of the dispatch suite, the heater-HTF ticks or the
-boilers-off gas models has such a column, so their paths are the same
-(equal one-thread logs on those checked).
+boilers-off gas models has such a column.
 
 **Results** (M1, `CRESTLINE_INSTR_CLOCK=10`, so load-independent: 10G
 instructions of the two threads count as a second, which is 0.42 s of
 wall time on the idle machine; 2 threads, 1% gap, seeds 0-7; time to 1%
 in those seconds, the first root LP being about 17 of them):
 
-| | main | flip search first |
-|---|---|---|
-| boilers free, high price | 61 138 90 28 83 79 25 23 (shifted geometric mean 56.4) | 29 31 30 28 30 33 25 18 (27.6, 0.49 of main) |
-| ... first incumbent / after the flip search (seed 0) | 13.5% | 13.5% / 0.90%, 18 LP solves |
-| boilers free, lower price (1.7 target gaps after the root dive: the same path, equal logs at one thread) | 20 48 35 22 22 24 22 20 (25.6) | 20 42 34 22 33 24 31 21 (27.6) |
+| | before | flip search first over three target gaps (#85) | at any gap, with the flip search's memory |
+|---|---|---|---|
+| boilers free, high price | 61 138 90 28 83 79 25 23 (shifted geometric mean 56.4) | 29 31 30 28 30 33 25 18 (27.6, 0.49) | 30 31 30 28 30 34 23 18 (27.7) |
+| ... first incumbent / after the flip search (seed 0) | 13.5% | 13.5% / 0.90%, 18 LP solves | |
+| boilers free, lower price (1.7 target gaps after the root dive) | 20 48 35 22 22 24 22 20 (25.6) | 20 42 34 22 33 24 31 21 (27.6; rerun with #86: 20 41 27 21 29 32 29 19, 26.6) | 16 16 16 17 22 18 17 16 (17.2, 0.65 of the rerun) |
 
 By the wall clock (same machine, lightly loaded, seeds 0-2) the
-high-price model now takes 11.3, 15.1 and 13.5 s.
+high-price model takes 11.3, 15.1 and 13.5 s. The memory by itself
+changes neither (27.0 and 25.4).
 
 **Tried instead, and rejected:**
 - *Rounding the boilers on in the dives.* A zero-cost column with no
@@ -1118,6 +1121,93 @@ high-price model now takes 11.3, 15.1 and 13.5 s.
   left of it (mean incumbent within 0.5% of main's over 4 seeds), and
   the boilers-free high-price model gets worse (1 of 4 seeds reaches 1%,
   against 4 of 4).
+
+### A dive that ends near the target
+
+**The rule.** The quick search also runs the flip search first when the
+root dive leaves the incumbent within three target gaps of the bound
+(and the gap is still open). What is missing is then mostly single
+columns rounded the wrong way, which a flip puts right at an LP solve
+each, where a neighbourhood costs an LP of some hundred simplex
+iterations and a dive; often the gap closes there
+(`dm_full_coarse24_noramp`, seed 0, two threads: 1.45% after the dive,
+1.11% after nine LP solves of flips, and solved with the bound's next
+move, where two neighbourhoods took a third longer). On seed 0, 26 of
+the 36 dispatch models end their root dive that near, three of them at
+2.99-3.00 target gaps (`ovn_0716_g158`, `dm_small_prices_noramp`,
+`diverse_10-01_0052`), so not on every seed.
+
+**Results.** Paired on the runners (bench-dispatch, 180 s, seeds 0-15,
+36 models, 576 pairs per architecture), four configurations of one
+build: `mip_graph_lns_flip_first` and `mip_graph_lns_flip_memory` off
+(which is main before the two on these models), each on, and both on.
+Time to 1% as the geometric mean over the models of the ratio to the
+first; solved runs of 576:
+
+| | one thread (arm64) | two threads (arm64 / x86-64) |
+|---|---|---|
+| this rule | 0.950; 524 -> 526 | 0.970 / 0.968; 553 -> 555 / 556 -> 554 |
+| the memory | 0.948; 524 -> 534 | 0.963 / 0.953; 553 -> 556 / 556 -> 556 |
+| both | 0.832; 524 -> 533 | 0.926 / 0.909; 553 -> 557 / 556 -> 556 |
+| both against the memory | 0.876 | 0.959 / 0.952 |
+| ... primal gap at the end, both against neither | -0.007 ± 0.006 | -0.026 ± 0.006 / -0.024 ± 0.005 |
+
+The two help each other: with the memory the flip search's 300 solves go
+to moves not yet tried, and close the gap more often by themselves. Both
+against neither, by model (one thread; two threads arm64 / x86-64):
+`dm_full_coarse24_noramp` 0.43; 0.62 / 0.56, `dm_medium_randsoc_noramp`
+0.50; 0.87 / 0.82, `dm_full_pert_s1_noramp` 0.55; 0.91 / 0.88,
+`dm_full_pert_s1_ramp` 0.66; 0.87 / 0.86, `dm_medium_pert_s1_noramp`
+0.72; 0.81 / 0.78, `dm_medium_prices_noramp` 0.79; 0.72 / 0.67,
+`dm_medium_pert_s1_ramp` 0.81; 0.79 / 0.77, `tick_1025_0028` 0.69; 0.76
+/ 0.72, `ovn_1148_g105` 0.61; 0.83 / 0.78. `diverse_10-01_0052` is
+solved in 2 of 16 runs at one thread (4 before; the memory alone the
+same) and in 13 / 12 at two (9 / 12). Slower at two threads:
+`dm_full_prices_noramp` 1.07 [1.01, 1.15] / 1.06 (a 2 s model) and, not
+significantly, `lambda_20260930_142050_3c1b60d6` 1.04 [0.79, 1.37] /
+1.10 (0.87 at one thread). `hard_10-03_1340` ends its dive over three
+target gaps away and keeps its path but for the memory: final gap
+-0.025 ± 0.082 at one thread, +0.009 ± 0.039 / +0.001 ± 0.040 at two.
+
+The related models (M1, `CRESTLINE_INSTR_CLOCK=24`, two threads, 4
+seeds, both against main): the four heater-HTF ticks 27.9 against 27.8
+in the sum of their shifted geometric means, the boilers-off gas model
+8.9 against 9.3 at the lower price and, at the high price, never solved,
+a mean incumbent 0.3% better (within the seeds' spread).
+
+### After a wider gap: tried, not kept
+
+The flip search first after any root dive that leaves the gap open, or
+only after one that leaves over three target gaps, reaches a good
+incumbent sooner on the models that end their dive far away, but the
+target gap no sooner, and it costs the hardest tick a little.
+
+| against | | time to 1% | time to within 1% of the best known | solved |
+|---|---|---|---|---|
+| main | first over three target gaps, any model; two threads, seeds 0-15, two runs | 0.989 / 0.984 and 0.997 / 0.996 | 0.935 / 0.927 and 0.933 / 0.929 | 554 -> 557 / 556 -> 557 and 556 -> 558 / 556 -> 557 |
+| main | ... one thread, seeds 0-15 | 0.988 / 0.991 | 0.935 / 0.933 | 524 -> 519 / 525 -> 521 |
+| main | ... seeds 16-31, the 9 models over three target gaps: two threads; one thread | 1.017 / 0.966; 1.032 / 1.027 | 0.80 / 0.78; 0.81 / 0.79 | 122 -> 125 / 121 -> 124; 88 -> 91 / 90 -> 92 |
+| this rule with the memory | first at any gap; two threads, seeds 0-15, the 14 models where the two differ | 0.989 / 0.989 | 0.753 / 0.710 | 201 -> 205 / 205 -> 204 |
+
+- `hard_10-03_1340` (never solved in 180 s) ends with a larger gap in
+  every one of these comparisons: +0.013 ± 0.033, +0.042 ± 0.036, +0.041
+  ± 0.037 and +0.006 ± 0.057 at two threads on seeds 0-15, +0.039 ±
+  0.055 and +0.031 ± 0.045 on seeds 16-31, +0.04 to +0.08 (± 0.11) at
+  one thread, and +0.029 ± 0.035 and +0.035 ± 0.042 with the memory.
+  About 0.03 points of gap, from the incumbent.
+- The solve time moves both ways by model and consistently so:
+  `ovn_0652_g157` 0.65-0.78 in all four two-thread comparisons,
+  `ovn_0636_g147` 1.01-1.29 and `ovn_0700_g157` 0.99-1.20.
+- Why the neighbourhoods do better from the dive's own point: after the
+  flips have taken the single-column gains, a neighbourhood's dive
+  improves the incumbent less often and by less, so fewer of them count
+  as progress and the quick search stalls earlier
+  (`lambda_20260930_142050_3c1b60d6`, which ends its dive at 2.2 target
+  gaps, two seeds: 2 of 5 and 2 of 7 neighbourhoods improved after the
+  flips, 6 of 12 and 3 of 10 without, and the quick search ended at
+  1.38% and 1.27% from the bound against 1.24% and 1.15%). Where the
+  flips close the gap by themselves that does not matter, which is the
+  near case.
 
 ## Where the truth is on the gas-boiler model (2026-11-22)
 
@@ -1206,8 +1296,7 @@ the best known):
   charging limit, and the LP pays with the electric boiler);
 - one column per LP solve, integral ones left free: 20% worse (least
   fractional first) and 17% worse (earliest period first), for 550-650
-  LP solves: this is the lazy dive of "Isolated decision columns: the
-  flip search first";
+  LP solves: this is the lazy dive of "The flip search first";
 - block coordinate descent from an early incumbent, one bank (or two) at
   a time solved exactly with every other bank's columns, continuous ones
   included, held: stalls 12% from the best known with single banks and
@@ -1389,9 +1478,18 @@ end with the same status as before.
   incumbent: the heater-HTF ticks 1.2-2.5 times slower (see "The path
   separator's work limit at the root").
 - Rounding zero-cost on/off columns up in the dives, probing them, and
-  lazy dives (see "Isolated decision columns: the flip search first").
+  lazy dives (see "The flip search first").
 - Sum-up rounding, time-ordered relax-and-fix, and block coordinate
   descent over banks, as constructions or moves on the gas-boiler model
   (see "Where the truth is on the gas-boiler model").
 - `simplex_update_limit` 60 or 200 for the LNS LPs (more refactorization):
   the same progress per instruction on the gas-boiler model.
+- The flip search first after a root dive that leaves a wide gap, on
+  models without isolated decision columns (see "The flip search
+  first").
+- A plain memory of the flip search's failed moves, forgotten when none
+  is left to try (see "The flip search's memory of failed moves").
+- The deep search starting each call with its flip search while that
+  makes progress, rather than with its two branch-and-bound
+  neighbourhoods: of the five overnight ticks three slower (1.1-1.4) and
+  two faster (0.9), over 4 seeds at one thread (M1, instruction clock).
