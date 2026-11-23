@@ -1063,15 +1063,18 @@ boilers-off gas models has such a column, so their paths are the same
 (equal one-thread logs on those checked).
 
 **Results** (M1, `CRESTLINE_INSTR_CLOCK=10`, so load-independent: 10G
-instructions of the two threads count as a second; 2 threads, 1% gap,
-180 s limit, seeds 0-7; time to 1% in those seconds, the first root LP
-being about 17 of them):
+instructions of the two threads count as a second, which is 0.42 s of
+wall time on the idle machine; 2 threads, 1% gap, seeds 0-7; time to 1%
+in those seconds, the first root LP being about 17 of them):
 
 | | main | flip search first |
 |---|---|---|
 | boilers free, high price | 61 138 90 28 83 79 25 23 (shifted geometric mean 56.4) | 29 31 30 28 30 33 25 18 (27.6, 0.49 of main) |
 | ... first incumbent / after the flip search (seed 0) | 13.5% | 13.5% / 0.90%, 18 LP solves |
 | boilers free, lower price (1.7 target gaps after the root dive: the same path, equal logs at one thread) | 20 48 35 22 22 24 22 20 (25.6) | 20 42 34 22 33 24 31 21 (27.6) |
+
+By the wall clock (same machine, lightly loaded, seeds 0-2) the
+high-price model now takes 11.3, 15.1 and 13.5 s.
 
 **Tried instead, and rejected:**
 - *Rounding the boilers on in the dives.* A zero-cost column with no
