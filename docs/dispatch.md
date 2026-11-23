@@ -1460,7 +1460,22 @@ each, at the end of the quick search).
   once the budget is used up no LP is solved: the dive, the
   neighbourhood's tree search and the flip search stop.
 
-**Results.** RUNNER_STALL
+**Results.** The dispatch suite, paired against main on the runners
+(bench-dispatch, 180 s, seeds 0-15, 36 models, 576 pairs per
+architecture): the paths change only where a limit was met.
+
+| | one thread (arm64) | two threads (arm64 / x86-64) |
+|---|---|---|
+| time to 1%, geometric mean over the models | 0.996 | 1.000 / 0.977 |
+| solved, of 576 | 533 -> 535 | 555 -> 557 / 555 -> 559 |
+| time to within 1% of the best known | 0.999 [0.997, 1.001] | 0.998 [0.995, 1.001] / 0.996 [0.991, 1.001] |
+| `hard_10-03_1340` gap at the limit | -0.046 ± 0.039 | -0.011 ± 0.028 / +0.001 ± 0.038 |
+
+By model at two threads the solved ones are within their seeds' spread
+(`ovn_0652_g157` 0.84 [0.73, 0.96] and `tick_1018_0340` 0.87 [0.78,
+0.97] on x86-64, `ovn_0716_g158` 1.15 [1.02, 1.29] on arm64, neither on
+the other architecture); `diverse_10-01_0052` is solved in 13 and 15 of
+16 runs (11 and 11).
 
 The gas-boiler model, boilers free (M1, `CRESTLINE_INSTR_CLOCK=10`, two
 threads, seeds 0-7, time to 1%; the first root LP is about 17):
