@@ -827,9 +827,9 @@ impl Heur {
         //   used up the budget on the banks' switches around boilers left
         //   off.)
         // With a wider gap and no such column the neighbourhoods go first:
-        // they then start from the dive's point, and on the hardest
-        // dispatch model the flips first left a slightly worse incumbent
-        // at the time limit.
+        // the flips first reach a good incumbent sooner there but the
+        // target gap no sooner, and on the hardest dispatch model they
+        // leave a slightly worse incumbent at the time limit (dispatch.md).
         let gap = m.upper_bound() - m.lower_bound();
         let target = m.upper_bound() - m.optimality_limit();
         if !deep && m.opts.mip_graph_lns_flip_first && gap > target && (gap <= 3.0 * target || s.h.isolated_cols) {
