@@ -8,7 +8,7 @@
 use super::cuts::sort::pdqsort;
 use super::domain::{DomChg as Chg, Reason, LOWER as LO, REASON_BRANCHING, UPPER as UP};
 use super::glue::{self, lp_status, source, Bnd, Dom, Lp, MipData, Worker};
-use super::lns::{decision_cols, select_type, Graph, Lns};
+use super::lns::{decision_cols, has_isolated_cols, select_type, Graph, Lns};
 use super::primal::{cmax, cmin, Heur};
 use crate::lp_data::LogType;
 use crate::util::fma::ClangFma;
@@ -639,6 +639,7 @@ impl Heur {
             return;
         }
         self.decisioncols = decision_cols(&mip_graph(m), m.row_lower(), m.row_upper(), m.integrality(), self.intcols());
+        self.isolated_cols = has_isolated_cols(&mip_graph(m), m.integrality(), &self.decisioncols);
     }
 
     /// graphLNS: root dive and LNS from the incumbent: quick dived
@@ -763,6 +764,25 @@ impl Heur {
         }
         let mut deep_tries = [0i32; 4];
         s.screen = Dom::copy(&gd);
+        // Crestline (mip_graph_lns_flip_first): decision columns that no
+        // neighbourhood reaches from the others (lns::has_isolated_cols) are
+        // moved by the flip search,
+        // which the quick search only runs at its end, if its LP budget
+        // lasts. With such columns and an incumbent still over three target
+        // gaps from the bound, it runs first. (On a gas-boiler dispatch
+        // model the root dive rounds a boiler off wherever the LP fires it
+        // below half its low fire, which leaves unserved load at a high
+        // price. Each boiler's flip improves on its own, and the search
+        // keeps a flip only if the LP improves: 18 LP solves took a 13% gap
+        // to under 1%, where the neighbourhoods had used up the budget on
+        // the banks' switches around boilers left off.)
+        if !deep
+            && m.opts.mip_graph_lns_flip_first
+            && s.h.isolated_cols
+            && m.upper_bound() - m.lower_bound() > 3.0 * (m.upper_bound() - m.optimality_limit())
+        {
+            s.flip_search(NODE_LIMIT);
+        }
         let mut it = 0;
         while since < max_stall && it < max_it {
             m.sync_concurrent_lns();

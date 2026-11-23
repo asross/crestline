@@ -39,7 +39,10 @@ the columns that determine them.
   time-indexed models, a time window); the rest are fixed to the incumbent,
   and if the neighbourhood LP (warm from the last LP solved, not the root
   basis) can beat the incumbent, it is dived.
-- A flip search polishes the incumbent.
+- A flip search polishes the incumbent. It runs first instead if some
+  decision column shares no row with another integer column and the root
+  dive left the incumbent over three target gaps from the bound (see
+  "Isolated decision columns: the flip search first").
 - On large models it spends at most about one root LP's worth of LP
   iterations, so that where neighbourhood LPs are expensive (ramping
   models) the root cuts come early.
@@ -213,6 +216,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_graph_lns_deep_early` | false (see above and [performance.md](./performance.md)) |
 | `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
 | `mip_lp_scaling` | false: the LPs of MIPs of at least 10000 rows (before presolve) are solved unscaled (true: scaled, as in HiGHS; see [performance.md](./performance.md)) |
+| `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when some decision column shares no row with another integer column and the root dive leaves a wide gap (false: it ends with it; see "Isolated decision columns: the flip search first") |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
@@ -1026,6 +1030,88 @@ solved; it is the noisy one, A/A 1.15), `dm_full_pert_s1_ramp` 0.888,
 runs past the time limit were rerun.) MIPLIB checks (8 models, one
 thread): the same node counts on all eight, the limit never binds there.
 
+## Isolated decision columns: the flip search first (2026-11-23)
+
+**The case.** The gas-boiler dispatch model with the boilers left to the
+solver and the high unserved-steam price: CPLEX (4 threads) reaches 1% in
+49 s; crest (2 threads) took 23-138 s over 8 seeds, and before the
+helper's budgets were fixed it missed 1% in 180 s. The bounds agree; the
+incumbents lag.
+
+**Diagnosis.** A boiler's on/off column shares no row with another
+integer column: it is tied to the plant only through its continuous fire,
+which is zero when off and between its low and full fire when on. So:
+- The LP fires boilers below their low fire (free steam, and the on/off
+  column takes the fraction that allows it) in five steps of six. The
+  root dive rounds to the nearest, which switches a boiler off wherever
+  the LP used less than half its low fire: the first incumbent is 13.5%
+  from the bound, with unserved load at the high price.
+- No breadth-first neighbourhood reaches a boiler column from the banks'
+  switches, and the quick search's own flip search only runs at its end,
+  if its LP budget lasts. Here the neighbourhood dives used the budget
+  up on the banks' switches around boilers left off, so the boilers
+  were left to the helper's deep search, which came to its flips after
+  its other moves.
+- Each missing boiler is an improving flip by itself.
+
+**The change.** `has_isolated_cols` (lns.rs): some decision column
+shares no row with another integer column. With such columns and an
+incumbent over three target gaps from the bound after the root dive, the
+quick search runs the flip search first (candidates in order of the gain
+their reduced cost promises, each kept only if the LP improves). The
+option `mip_graph_lns_flip_first` (on) is there for the oracle: two of
+its check models (`egout`, a fixed-charge network, and a
+semi-continuous test model) have such columns and change path, so
+`bench/quick_check.sh` turns it off for the comparison with the C++
+app. No model of the dispatch suite, the heater-HTF ticks or the
+boilers-off gas models has such a column, so their paths are the same
+(equal one-thread logs on those checked).
+
+**Results** (M1, `CRESTLINE_INSTR_CLOCK=10`, so load-independent: 10G
+instructions of the two threads count as a second, which is 0.42 s of
+wall time on the idle machine; 2 threads, 1% gap, seeds 0-7; time to 1%
+in those seconds, the first root LP being about 17 of them):
+
+| | main | flip search first |
+|---|---|---|
+| boilers free, high price | 61 138 90 28 83 79 25 23 (shifted geometric mean 56.4) | 29 31 30 28 30 33 25 18 (27.6, 0.49 of main) |
+| ... first incumbent / after the flip search (seed 0) | 13.5% | 13.5% / 0.90%, 18 LP solves |
+| boilers free, lower price (1.7 target gaps after the root dive: the same path, equal logs at one thread) | 20 48 35 22 22 24 22 20 (25.6) | 20 42 34 22 33 24 31 21 (27.6) |
+
+By the wall clock (same machine, lightly loaded, seeds 0-2) the
+high-price model now takes 11.3, 15.1 and 13.5 s.
+
+**Tried instead, and rejected:**
+- *Rounding the boilers on in the dives.* A zero-cost column with no
+  other integer column in its rows (the on/off column) takes its LP
+  value from the continuous columns it switches, anywhere on a zero-cost
+  face, so "nearest" says little; SCIP's vectorlength diving rounds
+  zero-cost columns up (Berthold's thesis), and unit commitment
+  heuristics commit what the LP uses. Tried as: up when in use (the
+  integer in the column's LP-feasible interval if there is one, else
+  away from its capacity row, which is the one with the larger
+  coefficient). The first incumbent is then 1.1-1.3% from the bound, and
+  the high-price model reaches 1% in 26-72 s (34.7, 0.62 of main). But
+  the dive's LP re-solves after switching the boilers on take 8000 more
+  simplex iterations, which the lower-price twin does not get back:
+  29-60 s (37.7, 1.47 of main). The LP cannot tell the two apart (same
+  LP solution: the unserved slack is nonbasic in both, and the first
+  order cost of either rounding is zero), so the rounding cannot be
+  right for both; the flip search can, since it solves the LP.
+- *Deciding each boiler last in the dive by solving both LPs:* the
+  probes take 110 simplex iterations each even with the banks fixed
+  (16000-20000 in the root dive), and the dive then fails.
+- *The main solver joining the helper's deep search while the gap is
+  wide* (a separate change) does not help here by itself: 22-161 s
+  (54.9).
+- *A lazy dive* (integral candidates left free for the LP to move, 1-16
+  fractional ones fixed per LP solve, as SCIP's fractional diving): on
+  the boilers-off model the first incumbent's gap goes from 101% to
+  32-49%, for 4 times the dive's LP iterations, but at 180 s nothing is
+  left of it (mean incumbent within 0.5% of main's over 4 seeds), and
+  the boilers-free high-price model gets worse (1 of 4 seeds reaches 1%,
+  against 4 of 4).
+
 ## Where the truth is on the gas-boiler model (2026-11-22)
 
 The gas-boiler model with the boilers held off and the high unserved-steam
@@ -1123,3 +1209,5 @@ this; CPLEX's and SCIP's root bounds are weaker than crest's.
 - The main solver's deep graph LNS beside a helper when the root gap is
   wide (see "Where the truth is on the gas-boiler model"): within seed
   noise there, slower on `diverse_10-01_0052` and a gas-boiler twin.
+- Rounding zero-cost on/off columns up in the dives, probing them, and
+  lazy dives (see "Isolated decision columns: the flip search first").

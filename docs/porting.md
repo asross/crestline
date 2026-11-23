@@ -126,6 +126,11 @@ unless it is anonymized.
   Crestline does not by default (faster on the dispatch models, see
   performance.md); `bench/quick_check.sh` and `bench/perf.py` set it to
   true for crest, so the oracle compares the same paths.
+- **Flip search first (`mip_graph_lns_flip_first`, on by default):**
+  with decision columns that share no row with another integer column
+  and a wide gap after the root dive, graph LNS's quick search starts
+  with its flip search (see dispatch.md); the C++ runs it last. The
+  oracle sets it to false for crest.
 
 ## Rules for each step
 
