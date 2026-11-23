@@ -342,6 +342,9 @@ fn print_f64(val: f64, trailing: &str) -> String {
     }
 }
 
+/// experiment: see more_heuristics_allowed
+const XNEAR2_DEFAULT: f64 = 0.0;
+
 impl MipData {
     pub fn op(&self, op: i32, w: Option<&Worker>, i: i64, x: f64) -> f64 {
         // SAFETY: the C++ operation on the live solver
@@ -542,6 +545,15 @@ impl MipData {
     /// moreHeuristicsAllowed
     pub fn more_heuristics_allowed(&self) -> bool {
         let sc = self.sc();
+        // experiment: with the gap within XNEAR of the target, no sub-MIP heuristics: branch
+        let xnear: f64 = std::env::var("CREST_XNEAR2").ok().and_then(|v| v.parse().ok()).unwrap_or(XNEAR2_DEFAULT);
+        if xnear > 0.0
+            && !self.submip
+            && sc.upper_bound < f64::INFINITY
+            && sc.upper_bound - sc.lower_bound <= xnear * (sc.upper_bound - sc.optimality_limit)
+        {
+            return false;
+        }
         // the quick graph-LNS search, early in the root node, has a budget
         // of its own
         let heur_lp_iterations = sc.heuristic_lp_iterations - sc.lns_quick_lp_iterations;

@@ -6,6 +6,8 @@
 //! centre, the separator, the profiling clocks and the C++ objects are
 //! reached through CMipFns::op (codes in `op` below).
 
+/// experiment: see `nearly_closed`
+const XNEAR_DEFAULT: f64 = 0.0;
 use super::glue::{self, lp_status, Lp, MipData, Worker, P};
 use super::mip_data::{op as mop, status};
 use crate::lp_data::LogType;
@@ -716,9 +718,21 @@ impl MipData {
             // the root heuristics below are pointless once the target gap is
             // reached
             let root_gap_closed = |m: &MipData| m.sc().lower_bound > m.sc().optimality_limit;
+            // experiment: with the gap within XNEAR of the target, no root sub-MIPs: branch
+            let xnear: f64 = std::env::var("CREST_XNEAR").ok().and_then(|v| v.parse().ok()).unwrap_or(XNEAR_DEFAULT);
+            let nearly_closed = |m: &MipData| {
+                let sc = m.sc();
+                xnear > 0.0
+                    && !m.submip
+                    && sc.upper_bound < INF
+                    && sc.upper_bound - sc.lower_bound <= xnear * (sc.upper_bound - sc.optimality_limit)
+            };
             #[allow(clippy::never_loop)]
             loop {
                 if self.rootlpsol().is_empty() {
+                    break;
+                }
+                if nearly_closed(self) {
                     break;
                 }
                 if self.sc().upper_limit != INF && !self.more_heuristics_allowed() {
