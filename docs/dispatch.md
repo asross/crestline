@@ -39,10 +39,10 @@ the columns that determine them.
   time-indexed models, a time window); the rest are fixed to the incumbent,
   and if the neighbourhood LP (warm from the last LP solved, not the root
   basis) can beat the incumbent, it is dived.
-- A flip search polishes the incumbent. It runs first instead if some
-  decision column shares no row with another integer column and the root
-  dive left the incumbent over three target gaps from the bound (see
-  "Isolated decision columns: the flip search first").
+- A flip search polishes the incumbent. It runs first instead if the
+  root dive left the incumbent over three target gaps from the bound
+  (see "The flip search first after a root dive that leaves a wide
+  gap").
 - On large models it spends at most about one root LP's worth of LP
   iterations, so that where neighbourhood LPs are expensive (ramping
   models) the root cuts come early.
@@ -220,7 +220,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_graph_lns_deep_early` | false (see above and [performance.md](./performance.md)) |
 | `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
 | `mip_lp_scaling` | false: the LPs of MIPs of at least 10000 rows (before presolve) are solved unscaled (true: scaled, as in HiGHS; see [performance.md](./performance.md)) |
-| `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when some decision column shares no row with another integer column and the root dive leaves a wide gap (false: it ends with it; see "Isolated decision columns: the flip search first") |
+| `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when the root dive leaves the incumbent over three target gaps from the bound (false: it ends with it, as the C++; see "The flip search first after a root dive that leaves a wide gap") |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
@@ -1034,7 +1034,7 @@ solved; it is the noisy one, A/A 1.15), `dm_full_pert_s1_ramp` 0.888,
 runs past the time limit were rerun.) MIPLIB checks (8 models, one
 thread): the same node counts on all eight, the limit never binds there.
 
-## Isolated decision columns: the flip search first (2026-11-23)
+## The flip search first after a root dive that leaves a wide gap (2026-11-23)
 
 **The case.** The gas-boiler dispatch model with the boilers left to the
 solver and the high unserved-steam price: CPLEX (4 threads) reaches 1% in
@@ -1058,18 +1058,13 @@ which is zero when off and between its low and full fire when on. So:
   its other moves.
 - Each missing boiler is an improving flip by itself.
 
-**The change.** `has_isolated_cols` (lns.rs): some decision column
-shares no row with another integer column. With such columns and an
-incumbent over three target gaps from the bound after the root dive, the
-quick search runs the flip search first (candidates in order of the gain
-their reduced cost promises, each kept only if the LP improves). The
-option `mip_graph_lns_flip_first` (on) is there for the oracle: two of
-its check models (`egout`, a fixed-charge network, and a
-semi-continuous test model) have such columns and change path, so
-`bench/quick_check.sh` turns it off for the comparison with the C++
-app. No model of the dispatch suite, the heater-HTF ticks or the
-boilers-off gas models has such a column, so their paths are the same
-(equal one-thread logs on those checked).
+**The change, first version (#85).** With some decision column sharing
+no row with another integer column, and an incumbent over three target
+gaps from the bound after the root dive, the quick search runs the flip
+search first (candidates in order of the gain their reduced cost
+promises, each kept only if the LP improves). No model of the dispatch
+suite, the heater-HTF ticks or the boilers-off gas models has such a
+column, so their paths were the same.
 
 **Results** (M1, `CRESTLINE_INSTR_CLOCK=10`, so load-independent: 10G
 instructions of the two threads count as a second, which is 0.42 s of
@@ -1084,6 +1079,24 @@ in those seconds, the first root LP being about 17 of them):
 
 By the wall clock (same machine, lightly loaded, seeds 0-2) the
 high-price model now takes 11.3, 15.1 and 13.5 s.
+
+**Without the condition on the columns** (the change as it is now): a
+root dive that leaves the incumbent over three target gaps away has
+usually rounded some columns the wrong way where each can be put right
+by itself, whatever rows they share, and flips find those at an LP solve
+each before the neighbourhoods start. After the root dive the gap is
+over three target gaps on 10 of the 36 dispatch models (seed 0: four
+`ovn_*` ticks, both `tick_1018_*`, `hard_10-03_1340`, three of the small
+models) and at 2.99-3.00 on three more (`ovn_0716_g158`,
+`dm_small_prices_noramp`, `diverse_10-01_0052`). Paired against main on
+the runners (bench-dispatch, 180 s, 16 seeds, 36 models, 576 pairs per
+architecture):
+
+RUNNER_FFW
+
+The option `mip_graph_lns_flip_first` (on) is there for the oracle,
+whose check models change path: `bench/quick_check.sh` turns it off for
+the comparison with the C++ app.
 
 **Tried instead, and rejected:**
 - *Rounding the boilers on in the dives.* A zero-cost column with no
