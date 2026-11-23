@@ -75,7 +75,7 @@ fn fix_try(dom: &Dom, col: i32, val: f64) -> bool {
 }
 
 /// experiment flags: CREST_X, else this
-const X_DEFAULT: &str = "";
+const X_DEFAULT: &str = "dlt";
 fn xflag(name: &str) -> bool {
     std::env::var("CREST_X").unwrap_or_else(|_| X_DEFAULT.to_string()).split(',').any(|f| f == name)
 }
