@@ -58,6 +58,7 @@ def run(binary, inst, opts):
             f.write("mip_graph_lns_cost_perturbation = true\n")
             f.write("mip_symmetry_static_orbitopes = false\n")
             f.write("mip_lp_scaling = true\n")
+            f.write("mip_graph_lns_flip_first = false\n")
     try:
         if sys.platform == "darwin":
             r = subprocess.run(["/usr/bin/time", "-l", binary, "--options_file", f.name, str(inst)],

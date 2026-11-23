@@ -425,6 +425,7 @@ impl MipSolver {
                 mip_graph_lns_deep_early: o.mip_graph_lns_deep_early,
                 mip_deterministic: o.mip_deterministic,
                 mip_symmetry_static_orbitopes: o.mip_symmetry_static_orbitopes,
+                mip_graph_lns_flip_first: o.mip_graph_lns_flip_first,
             },
             helper_pool: self.concurrent_lns,
             lns_target: self.lns_target_reached,

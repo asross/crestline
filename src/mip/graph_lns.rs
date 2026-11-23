@@ -764,8 +764,9 @@ impl Heur {
         }
         let mut deep_tries = [0i32; 4];
         s.screen = Dom::copy(&gd);
-        // Crestline: decision columns that no neighbourhood reaches from the
-        // others (lns::has_isolated_cols) are moved by the flip search,
+        // Crestline (mip_graph_lns_flip_first): decision columns that no
+        // neighbourhood reaches from the others (lns::has_isolated_cols) are
+        // moved by the flip search,
         // which the quick search only runs at its end, if its LP budget
         // lasts. With such columns and an incumbent still over three target
         // gaps from the bound, it runs first. (On a gas-boiler dispatch
@@ -775,7 +776,11 @@ impl Heur {
         // keeps a flip only if the LP improves: 18 LP solves took a 13% gap
         // to under 1%, where the neighbourhoods had used up the budget on
         // the banks' switches around boilers left off.)
-        if !deep && s.h.isolated_cols && m.upper_bound() - m.lower_bound() > 3.0 * (m.upper_bound() - m.optimality_limit()) {
+        if !deep
+            && m.opts.mip_graph_lns_flip_first
+            && s.h.isolated_cols
+            && m.upper_bound() - m.lower_bound() > 3.0 * (m.upper_bound() - m.optimality_limit())
+        {
             s.flip_search(NODE_LIMIT);
         }
         let mut it = 0;

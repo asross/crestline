@@ -216,6 +216,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_graph_lns_deep_early` | false (see above and [performance.md](./performance.md)) |
 | `mip_symmetry_static_orbitopes` | true (packing orbitopes in a static order; see [performance.md](./performance.md)) |
 | `mip_lp_scaling` | false: the LPs of MIPs of at least 10000 rows (before presolve) are solved unscaled (true: scaled, as in HiGHS; see [performance.md](./performance.md)) |
+| `mip_graph_lns_flip_first` | true: the quick search starts with its flip search when some decision column shares no row with another integer column and the root dive leaves a wide gap (false: it ends with it; see "Isolated decision columns: the flip search first") |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
@@ -1057,8 +1058,12 @@ which is zero when off and between its low and full fire when on. So:
 shares no row with another integer column. With such columns and an
 incumbent over three target gaps from the bound after the root dive, the
 quick search runs the flip search first (candidates in order of the gain
-their reduced cost promises, each kept only if the LP improves). No
-option. No model of the dispatch suite, the heater-HTF ticks or the
+their reduced cost promises, each kept only if the LP improves). The
+option `mip_graph_lns_flip_first` (on) is there for the oracle: two of
+its check models (`egout`, a fixed-charge network, and a
+semi-continuous test model) have such columns and change path, so
+`bench/quick_check.sh` turns it off for the comparison with the C++
+app. No model of the dispatch suite, the heater-HTF ticks or the
 boilers-off gas models has such a column, so their paths are the same
 (equal one-thread logs on those checked).
 
