@@ -67,6 +67,9 @@ pub struct Heur {
     intcols: UnsafeCell<Vec<i32>>,
     pub(crate) decisioncols: Vec<i32>,
     pub(crate) decision_cols_set_up: bool,
+    /// some decision column shares no row with another integer column
+    /// (lns::has_isolated_cols)
+    pub(crate) isolated_cols: bool,
     /// a graph-LNS dive from the LP point found nothing: don't dive again
     pub(crate) lns_dive_failed: bool,
     pub(crate) lns_moves: [LnsMove; 4],
@@ -160,6 +163,7 @@ impl Heur {
             intcols: UnsafeCell::new(Vec::new()),
             decisioncols: Vec::new(),
             decision_cols_set_up: false,
+            isolated_cols: false,
             lns_dive_failed: false,
             lns_moves: [LnsMove::default(); 4],
             lns_flip_obj: INF,
@@ -219,6 +223,7 @@ impl Heur {
         let mut intcols = m.integer_cols().to_vec();
         self.decision_cols_set_up = false;
         self.decisioncols.clear();
+        self.isolated_cols = false;
         self.lns_moves = [LnsMove::default(); 4];
         self.lns_flip_obj = INF;
         let feastol = m.feastol();
