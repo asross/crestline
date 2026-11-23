@@ -135,6 +135,82 @@ pub fn select_type(types: &[LnsMove; 4], deep_tries: &mut [i32; 4], flips_exhaus
     ty
 }
 
+/// The flip search's memory (mip_graph_lns_flip_memory), the don't-look
+/// bits of local search: a move that did not improve is not tried again
+/// until a decision column in a row of one of its columns has changed.
+#[derive(Default)]
+pub struct FlipMemory {
+    /// the moves that did not improve, with the epoch then
+    failed: std::collections::HashMap<(i32, i32), u32>,
+    /// per column, the epoch of the last change in its rows
+    touched: Vec<u32>,
+    /// the number of changes
+    epoch: u32,
+    /// the decision columns' values after the last search (empty: none yet)
+    last: Vec<f64>,
+}
+
+impl FlipMemory {
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// A move: its columns, each with whether it leaves its upper value
+    /// (`p` is -1 for a single flip)
+    pub fn key(j: i32, j_up: bool, p: i32, p_up: bool) -> (i32, i32) {
+        (2 * j + j_up as i32, if p < 0 { -1 } else { 2 * p + p_up as i32 })
+    }
+
+    /// The incumbent's decision columns are `cur`: those another move or
+    /// solver has changed since the last search
+    pub fn sync(&mut self, g: &Graph, decision: &[i32], cur: &[f64]) {
+        if self.touched.len() != cur.len() {
+            self.clear();
+            self.touched = vec![0; cur.len()];
+        }
+        if self.last.len() == cur.len() {
+            let changed: Vec<i32> =
+                decision.iter().copied().filter(|&c| self.last[c as usize] != cur[c as usize]).collect();
+            self.changed(g, &changed, cur);
+        }
+        self.last.clear();
+        self.last.extend_from_slice(cur);
+    }
+
+    /// `cols` have changed, to their values in `cur`: a new epoch for the
+    /// columns of their rows
+    pub fn changed(&mut self, g: &Graph, cols: &[i32], cur: &[f64]) {
+        if cols.is_empty() {
+            return;
+        }
+        self.epoch += 1;
+        for &c in cols {
+            self.touched[c as usize] = self.epoch;
+            for p in g.col(c as usize) {
+                for q in g.row(g.a_index[p] as usize) {
+                    self.touched[g.ar_index[q] as usize] = self.epoch;
+                }
+            }
+            self.last[c as usize] = cur[c as usize];
+        }
+    }
+
+    pub fn failed(&mut self, key: (i32, i32)) {
+        self.failed.insert(key, self.epoch);
+    }
+
+    pub fn improved(&mut self, key: (i32, i32)) {
+        self.failed.remove(&key);
+    }
+
+    /// Whether the move (of columns `j` and `p`) failed before, with no
+    /// change since in their rows
+    pub fn known(&self, key: (i32, i32), j: i32, p: i32) -> bool {
+        let t = &self.touched;
+        self.failed.get(&key).is_some_and(|&e| t[j as usize] <= e && (p < 0 || t[p as usize] <= e))
+    }
+}
+
 /// The state of one graphLNS call
 pub struct Lns {
     pub decision: Vec<i32>,
@@ -395,6 +471,43 @@ fn gain(col: usize, cur: &[f64], glo: &[f64], gup: &[f64], rc: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flip_memory() {
+        // rows x0 + x1, x1 + x2, x3
+        let g = Graph {
+            a_start: &[0, 1, 3, 4, 5],
+            a_index: &[0, 0, 1, 1, 2],
+            a_value: &[1.0; 5],
+            ar_start: &[0, 2, 4, 5],
+            ar_index: &[0, 1, 1, 2, 3],
+            ar_value: &[1.0; 5],
+        };
+        let decision = [0, 1, 2, 3];
+        let mut cur = [0.0; 4];
+        let mut m = FlipMemory::default();
+        m.sync(&g, &decision, &cur);
+        let (k0, k3) = (FlipMemory::key(0, false, -1, false), FlipMemory::key(3, false, -1, false));
+        let k02 = FlipMemory::key(0, false, 2, false);
+        assert!(!m.known(k0, 0, -1));
+        m.failed(k0);
+        m.failed(k3);
+        m.failed(k02);
+        assert!(m.known(k0, 0, -1) && m.known(k3, 3, -1) && m.known(k02, 0, 2));
+        // the search flips x2, which shares a row with neither x0 nor x3
+        cur[2] = 1.0;
+        m.changed(&g, &[2], &cur);
+        assert!(m.known(k0, 0, -1) && m.known(k3, 3, -1) && !m.known(k02, 0, 2));
+        // another move flips x1, which shares a row with x0
+        cur[1] = 1.0;
+        m.sync(&g, &decision, &cur);
+        assert!(!m.known(k0, 0, -1) && m.known(k3, 3, -1));
+        // failing again is remembered again; improving is not
+        m.failed(k0);
+        assert!(m.known(k0, 0, -1));
+        m.improved(k3);
+        assert!(!m.known(k3, 3, -1));
+    }
 
     #[test]
     fn bfs_and_partners() {

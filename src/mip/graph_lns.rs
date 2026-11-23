@@ -8,7 +8,7 @@
 use super::cuts::sort::pdqsort;
 use super::domain::{DomChg as Chg, Reason, LOWER as LO, REASON_BRANCHING, UPPER as UP};
 use super::glue::{self, lp_status, source, Bnd, Dom, Lp, MipData, Worker};
-use super::lns::{decision_cols, has_isolated_cols, select_type, Graph, Lns};
+use super::lns::{decision_cols, has_isolated_cols, select_type, FlipMemory, Graph, Lns};
 use super::primal::{cmax, cmin, Heur};
 use crate::lp_data::LogType;
 use crate::util::fma::ClangFma;
@@ -481,30 +481,11 @@ impl GraphLns<'_> {
         infeasible
     }
 
-    /// A move for the flip search's memory: its columns, each with the
-    /// value it leaves (`p` is -1 for a single flip)
+    /// A move's key in the flip search's memory (`p` is -1 for a single
+    /// flip)
     fn move_key(&self, j: i32, p: i32, gb: &Bnd) -> (i32, i32) {
-        let d = |c: i32| 2 * c + (self.cur[c as usize] > gb.lo(c as usize)) as i32;
-        (d(j), if p < 0 { -1 } else { d(p) })
-    }
-
-    /// `col` has changed: a new epoch for the columns of its rows
-    fn touch(&mut self, col: i32) {
-        let e = self.h.lns_flip_epoch;
-        self.h.lns_flip_touched[col as usize] = e;
-        for p in self.g.col(col as usize) {
-            for q in self.g.row(self.g.a_index[p] as usize) {
-                self.h.lns_flip_touched[self.g.ar_index[q] as usize] = e;
-            }
-        }
-    }
-
-    /// Whether the move failed before with no decision column of its
-    /// columns' rows changed since
-    fn known_failure(&self, j: i32, p: i32, gb: &Bnd) -> bool {
-        let t = &self.h.lns_flip_touched;
-        let failed = self.h.lns_flip_failed.get(&self.move_key(j, p, gb));
-        failed.is_some_and(|&e| t[j as usize] <= e && (p < 0 || t[p as usize] <= e))
+        let up = |c: i32| c >= 0 && self.cur[c as usize] > gb.lo(c as usize);
+        FlipMemory::key(j, up(j), p, up(p))
     }
 
     /// try a move: on improvement keep it, otherwise undo it
@@ -513,14 +494,10 @@ impl GraphLns<'_> {
         let key = self.move_key(cols[0], if cols.len() > 1 { cols[1] } else { -1 }, gb);
         let improved = self.try_move_lp(cols, solves, gb);
         if memory && improved {
-            self.h.lns_flip_failed.remove(&key);
-            self.h.lns_flip_epoch += 1;
-            for &c in cols {
-                self.touch(c);
-                self.h.lns_flip_last[c as usize] = self.cur[c as usize];
-            }
+            self.h.lns_flip_memory.improved(key);
+            self.h.lns_flip_memory.changed(&self.g, cols, &self.cur);
         } else if memory {
-            self.h.lns_flip_failed.insert(key, self.h.lns_flip_epoch);
+            self.h.lns_flip_memory.failed(key);
         }
         improved
     }
@@ -585,26 +562,8 @@ impl GraphLns<'_> {
         }
         let memory = m.opts.mip_graph_lns_flip_memory;
         if memory {
-            // the columns another move or solver has changed since the last
-            // search
-            if self.h.lns_flip_touched.len() != self.n {
-                self.h.lns_flip_touched = vec![0; self.n];
-                self.h.lns_flip_failed.clear();
-                self.h.lns_flip_last.clear();
-                self.h.lns_flip_epoch = 0;
-            }
-            if self.h.lns_flip_last.len() == self.n {
-                let last = &self.h.lns_flip_last;
-                let changed: Vec<i32> =
-                    self.h.decisioncols.iter().copied().filter(|&c| last[c as usize] != self.cur[c as usize]).collect();
-                if !changed.is_empty() {
-                    self.h.lns_flip_epoch += 1;
-                    for c in changed {
-                        self.touch(c);
-                    }
-                }
-            }
-            self.h.lns_flip_last.clone_from(&self.cur);
+            let h = &mut *self.h;
+            h.lns_flip_memory.sync(&self.g, &h.decisioncols, &self.cur);
         }
         // the incumbent's decision columns are fixed in the LP, others get
         // their global bounds
@@ -646,8 +605,9 @@ impl GraphLns<'_> {
                         let mut partners: Vec<i32> = self.lns.partners.iter().take(PARTNERS).map(|p| p.1).collect();
                         let mut single = true;
                         if memory {
-                            single = !self.known_failure(j, -1, &gb);
-                            partners.retain(|&p| !self.known_failure(j, p, &gb));
+                            let known = |p: i32| self.h.lns_flip_memory.known(self.move_key(j, p, &gb), j, p);
+                            single = !known(-1);
+                            partners.retain(|&p| !known(p));
                         }
                         if single || !partners.is_empty() {
                             open.push(j);
