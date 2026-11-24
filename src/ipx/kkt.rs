@@ -7,6 +7,7 @@
 use crate::util::fma::ClangFma;
 
 use super::basis::{BasicStatus, Basis};
+use super::cholesky::NormalCholesky;
 use super::control::Control;
 use super::fmt::sci2;
 use super::indexed_vector::IndexedVector;
@@ -647,6 +648,107 @@ impl KktSolver for KktSolverDiag<'_> {
         info.time_cr1_pre += precond.time;
         self.iter += cr.iter;
 
+        x[n..n + m].copy_from_slice(&b[..m]);
+        for j in 0..n {
+            let aty = dot_column(ai, j, y);
+            x[j] = self.w[j] * (a[j] - aty);
+            for p in ai.begin(j)..ai.end(j) {
+                let i = n + ai.index(p);
+                x[i] = (-x[j]).mul_add_c(ai.value(p), x[i]);
+            }
+        }
+        Ok(())
+    }
+
+    fn iter(&self) -> Int {
+        self.iter
+    }
+}
+
+/// Crestline: the normal equations AI*W*AI' with their Cholesky factor as
+/// the preconditioner of CR (one or two steps, which also repair what
+/// rounding and replaced pivots leave)
+pub struct KktSolverChol<'a> {
+    control: &'a Control,
+    model: &'a Model,
+    w: Vec<f64>,
+    resscale: Vec<f64>,
+    chol: NormalCholesky,
+    factorized: bool,
+    iter: Int,
+}
+
+struct CholPrecond<'a> {
+    chol: &'a mut NormalCholesky,
+}
+
+impl LinearOperator for CholPrecond<'_> {
+    fn apply(&mut self, rhs: &[f64], lhs: &mut [f64], rhs_dot_lhs: Option<&mut f64>) {
+        self.chol.solve(rhs, lhs);
+        if let Some(r) = rhs_dot_lhs {
+            *r = dot(rhs, lhs);
+        }
+    }
+}
+
+impl<'a> KktSolverChol<'a> {
+    pub fn new(control: &'a Control, model: &'a Model, chol: NormalCholesky) -> Self {
+        let m = model.rows();
+        let n = model.cols();
+        KktSolverChol { control, model, w: vec![0.0; n + m], resscale: vec![0.0; m], chol, factorized: false, iter: 0 }
+    }
+}
+
+impl KktSolver for KktSolverChol<'_> {
+    fn factorize_impl(&mut self, iterate: Option<&mut Iterate>, _info: &mut Info) -> LuResult<()> {
+        let m = self.model.rows();
+        let n = self.model.cols();
+        self.iter = 0;
+        self.factorized = false;
+        if let Some(pt) = iterate {
+            let (xl, xu, zl, zu) = (pt.xl(), pt.xu(), pt.zl(), pt.zu());
+            let mut regval = pt.mu();
+            for j in 0..n + m {
+                let g = zl[j] / xl[j] + zu[j] / xu[j];
+                if g != 0.0 && g < regval {
+                    regval = g;
+                }
+                self.w[j] = 1.0 / g;
+            }
+            for j in 0..n + m {
+                if self.w[j].is_infinite() {
+                    self.w[j] = 1.0 / regval;
+                }
+            }
+        } else {
+            self.w.fill(1.0);
+        }
+        for i in 0..m {
+            self.resscale[i] = 1.0 / self.w[n + i].sqrt();
+        }
+        self.chol.factorize(&self.w);
+        self.factorized = true;
+        Ok(())
+    }
+
+    fn solve_impl(&mut self, a: &[f64], b: &[f64], tol: f64, x: &mut [f64], y: &mut [f64], info: &mut Info) -> LuResult<()> {
+        let m = self.model.rows();
+        let n = self.model.cols();
+        let ai = self.model.ai();
+        let mut rhs: Vec<f64> = b.iter().map(|v| -v).collect();
+        for j in 0..n + m {
+            scatter_column(ai, j, self.w[j] * a[j], &mut rhs);
+        }
+        y.fill(0.0);
+        let mut normal_matrix = NormalMatrix { model: self.model, w: Some(&self.w), time: 0.0 };
+        let mut precond = CholPrecond { chol: &mut self.chol };
+        let mut cr = ConjugateResiduals::new(self.control);
+        cr.solve_precond(&mut normal_matrix, &mut precond, &rhs, tol, Some(&self.resscale), 50, y);
+        info.errflag = cr.errflag;
+        info.kktiter1 += cr.iter;
+        info.time_cr1 += cr.time;
+        info.time_cr1_aat += normal_matrix.time;
+        self.iter += cr.iter;
         x[n..n + m].copy_from_slice(&b[..m]);
         for j in 0..n {
             let aty = dot_column(ai, j, y);

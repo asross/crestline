@@ -587,6 +587,29 @@ impl LpSolver {
 
     fn run_initial_ipm(&mut self, ipm: &mut Ipm) -> LuResult<()> {
         let timer = Instant::now();
+        // PROTOTYPE: the whole IPM on the Cholesky factor of the normal matrix
+        if std::env::var_os("CREST_CHOL").is_some() {
+            let t0 = Instant::now();
+            if let Some(chol) = super::cholesky::NormalCholesky::analyze(&self.model) {
+                self.control.log(&format!(" Cholesky of the normal matrix: {} entries in the factor, analysis {:.2}s, stats {:?}\n", chol.factor_entries(), t0.elapsed().as_secs_f64(), chol.factor_stats()));
+                let mut kkt = super::kkt::KktSolverChol::new(&self.control, &self.model, chol);
+                ipm.set_maxiter(self.control.ipm_maxiter());
+                ipm.driver(&mut kkt, self.iterate.as_mut().unwrap(), &mut self.info)?;
+                let info = &mut self.info;
+                match info.status_ipm {
+                    STATUS_OPTIMAL | STATUS_NO_PROGRESS => info.status_ipm = STATUS_NOT_RUN,
+                    STATUS_FAILED => {
+                        info.status_ipm = STATUS_NOT_RUN;
+                        info.errflag = 0;
+                    }
+                    _ => {}
+                }
+                info.time_ipm1 += timer.elapsed().as_secs_f64();
+                let msg = format!(" Cholesky IPM: {} iterations, {:.2}s; factorize {:.2}s, solve {:.2}s ({} CR iterations, products {:.2}s)\n", info.iter, timer.elapsed().as_secs_f64(), info.time_kkt_factorize, info.time_kkt_solve, info.kktiter1, info.time_cr1_aat);
+                self.control.log(&msg);
+                return Ok(());
+            }
+        }
         let mut kkt = KktSolverDiag::new(&self.control, &self.model);
 
         let switchiter = self.control.switchiter();

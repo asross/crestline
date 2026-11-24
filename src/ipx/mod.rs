@@ -16,6 +16,7 @@
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 
 mod basis;
+mod cholesky;
 mod control;
 mod crossover;
 pub mod ffi;
