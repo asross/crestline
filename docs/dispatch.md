@@ -1663,6 +1663,25 @@ block is still 1.3% open after 30 s. The bound that would stop the solve
 at 20 s costs two minutes of CPU, so, as on `hard_10-03_1340` then: too
 slow.
 
+The same on four more ticks (30 s per block; crest's bound is the median
+at the end of the two-thread runs above):
+
+| | L | CPU time in all (s) | crest's bound |
+|---|---|---|---|
+| `tick_1025_0004` | -370861 | 125 | -372035 |
+| `hard_10-03_1340` | -251240 | 130 | -251453 |
+| `diverse_10-01_0052` | -249958 | 40 | -250166 |
+| `ovn_0636_g147` | -193870 | 36 | -192965 |
+
+So the per-bank bound is 0.3% of the objective past crest's on
+`tick_1025_0004`, 0.09% on `hard_10-03_1340` and `diverse_10-01_0052`,
+and behind crest's cuts on the overnight tick. On `tick_1025_0004` it
+equals crest's bound at 0.1 s per block and is 0.13% past it at 2 s per
+block (31 s of CPU, for a solve of 8 s); on `diverse_10-01_0052` it
+passes crest's between 5 and 10 s per block (32-41 s of CPU, for a solve
+of 100 s); `hard_10-03_1340` would need -250990 or better for its 180 s
+incumbents.
+
 **What the bound would be worth.** The 22 inequalities "this block's
 objective at these prices is at least its bound" (the 30 s bounds),
 added to the model as rows: 21, 11, 18 and 10 s to 1% (seeds 0-3, two
@@ -1683,6 +1702,16 @@ a subgradient method over the prices that tie their copies of the switch
 together, reach all of what the bank's MIP adds to its LP on a bank of
 one module, 92% on one of three and 45% on one of two (300 iterations
 each).
+
+A reformulation does not get there either. Splitting each module's
+state of charge and discharge by the switch's state, and carrying the two
+parts from period to period by the flows on-on, on-off, off-on and
+off-off (the switching cost on the two that change), is exact for a
+plan and tighter than the model's rows for a fraction; its LP bound is
+13-22% of the way from the block's LP to its MIP on five blocks (one to
+nine modules), less than the root cuts already cover. The flows can
+carry any state of charge between none and the limit, so a long on
+stretch costs the relaxation little.
 
 **What it would take.** A module with its bank's switch is a
 one-dimensional state (its state of charge) under a binary control with
