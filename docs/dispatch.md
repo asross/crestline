@@ -1592,31 +1592,35 @@ suit. At one thread the ratio by itself solves 5 more runs
 itself solves 6 fewer there (`tick_1018_0340` in 8, `ovn_0716_g158` in
 14 of 16), and the two together as many as main, in 0.92 of its time.
 
-## Main against v0.1.3 (2026-11-23)
+## Main against v0.1.3 (2026-11-24)
 
-PRs #82 to #90 together (the path separator's limits, the flip search
+PRs #82 to #93 together (the path separator's limits, the flip search
 first and its memory, the main solver in the deep search, the stall
-handling, the stall rule and the gap ratio), main against the tag on the
-runners (bench-dispatch runs 45278857339 and 45278860587; 16 seeds,
-36 models, 180 s, 576 pairs per architecture):
+handling, the stall rule and the gap ratio, the refactorization clock,
+the further deep searches), main against the tag on the runners
+(bench-dispatch runs 45332205943 and 45332223172; 16 seeds, 36 models,
+180 s, 576 pairs per architecture):
 
 | | two threads (arm64 / x86-64) | one thread (arm64) |
 |---|---|---|
-| time to 1%, geometric mean over the models | 0.829 / 0.819 | 0.776 |
-| solved runs of 576 | 555 -> 558 / 559 -> 556 | 526 -> 535 |
-| time to within 1% of the best known | 0.935 / 0.929 | 0.951 |
-| primal gap over the run, difference | -0.027 ± 0.006 / -0.031 ± 0.005 | -0.008 ± 0.007 |
+| time to 1%, geometric mean over the models | 0.773 / 0.772 | 0.707 |
+| solved runs of 576 | 557 -> 560 / 556 -> 556 | 526 -> 547 |
+| time to within 1% of the best known | 0.898 / 0.894 | 0.919 |
+| primal gap over the run, difference | -0.068 ± 0.009 / -0.067 ± 0.009 | -0.053 ± 0.011 |
 
-By model at two threads: `dm_small_windlull_noramp` 0.45 / 0.48,
-`dm_full_coarse24_noramp` 0.60 / 0.55, `tick_1018_0340` and
-`tick_1018_0420` 0.64-0.72, the `tick_1025_*` 0.57-0.72, the five
-`ovn_*` 0.72-0.80, the `dm_medium_*` 0.66-1.02; slower:
-`dm_full_prices_noramp` 1.09 [1.02, 1.16] / 1.03 (a 2 s model; the
-flip search first, see above). The runs not solved at two threads are
-`hard_10-03_1340` (none of 16 on either) and 2 / 4 of
-`diverse_10-01_0052`; at one thread also 14 of `diverse_10-01_0052`,
-5 each of `tick_1018_0340` and `tick_1018_0420` (9 each at v0.1.3) and
-one of `ovn_0652_g157`.
+By model at two threads: `tick_1018_0340` 0.49 / 0.49, `tick_1018_0420`
+0.43 / 0.53, `dm_small_windlull_noramp` 0.46 / 0.46, the five `ovn_*`
+0.57-0.74, `lambda_20260930_142050_3c1b60d6` 0.63 / 0.61, the
+`tick_1025_*` 0.58-0.76, `dm_full_coarse24_noramp` 0.61 / 0.55, the
+`dm_medium_*` 0.69-1.01; none is slower than 1.02
+(`dm_full_prices_noramp` 1.02 / 0.98). The runs not solved at two
+threads are `hard_10-03_1340` (none of 16 on either) and 0 / 4 of
+`diverse_10-01_0052`. At one thread `tick_1018_0340` is solved in 14
+runs of 16 (7 at v0.1.3) and `tick_1018_0420` in 16 (7), in half the
+time on the runs both solve; `diverse_10-01_0052` in 5 (1).
+
+(Before the last two changes, runs 45278857339 and 45278860587: 0.829 /
+0.819 at two threads, 0.776 at one.)
 
 ## What the bound leaves of the 1% (2026-11-23)
 
