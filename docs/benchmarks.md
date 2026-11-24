@@ -174,6 +174,47 @@ optimum 0. That one is MIPLIB's: it lists no solution, SCIP 10 proves a
 bound of 3446 in 30 min, and "optimal 0" (HiGHS and crest with presolve
 off) uses a binary at 1 - 2.75e-10 in a row with a 1e10 big-M.
 
+**Second campaign** (2026-11-24, crest main 31d56b6, run 45335365736 on
+x64). The workflow takes the latest HiGHS release, by now 1.16.0, for the
+twin and for `check/instances`, so a flag that crest shares with HiGHS
+1.15.1 but not with 1.16.0 now counts as crest-only.
+
+| source | models | crest solves | crest flagged | of which crest-only |
+|---|---|---|---|---|
+| random | 2000 | 4000 | 145 | 25 |
+| check/instances | 74 | 148 | 5 | 5 |
+| MIPLIB collection, easy, <= 20k nonzeros | 245 | 490 | 5 | 1 |
+| perturbed dispatch | 216 | 432 | 0 | 0 |
+
+Triage:
+- check/instances: three reproducers of HiGHS bugs fixed after 1.15.1
+  (`issue-2900` and `issue-3461`, wrong answers of
+  `strengthenInequalities`; `issue-3166`, a crash in symmetry detection).
+  Crest had all three, v0.1.3 included, and now follows the fixes
+  (docs/upstream.md). With the fixes (run 45402655894) these five flags
+  are gone and no flag is new.
+- MIPLIB: neos-3083784-nive, as before (MIPLIB's reference value).
+- random: the tiny-coefficient models again (docs/upstream.md). On most
+  of the crest-only ones HiGHS 1.16.0 and SCIP now agree with each other
+  and with an exactly feasible point (keys 1095, 147, 1179: crest and
+  1.15.1 say infeasible; 1730, 501: a wrong optimum), so 1.16.0 has
+  moved here. Keys 1576 and 1179 are infeasible only in builds that fuse
+  multiply-adds (crest's default; HiGHS 1.15.1 built by clang for arm64),
+  not in 1.16.0 built the same way. A bisection of HiGHS between the two
+  tags (37 builds, each change then applied alone to 1.15.1) attributes
+  eight of these keys to three changes:
+  PR #2990's change to `colPresolve` (an integer column is shifted to a
+  lower bound of zero only if it is binary but for the shift: keys 1095,
+  147, 501, 1576, 1179; the rounding hazard in the implied bounds is
+  still there, the shift no longer feeds it), PR #3332 (row dual bounds
+  are reset once a column's bound is no longer strictly implied: key
+  1730) and PR #3310 (feasibility jump skipped the rows in which a column
+  has a negative coefficient and had the sign of its objective term
+  wrong: keys 1784 and 536, which change only through the heuristic's
+  incumbent and stay doubtful in 1.16.0, which gives 172.79 on 536 with
+  the heuristic off). These three are not in crest yet.
+- perturbed dispatch: none.
+
 ## Baseline
 
 2026-10-16, crest `bench-std` (main 48f6190 + this harness), HiGHS 1.15.1

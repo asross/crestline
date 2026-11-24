@@ -781,7 +781,299 @@ impl Presolve<'_> {
         Ok(())
     }
 
+    /// HPresolve::strengthenInequalities as in HiGHS 1.16: PR #3234 (issue
+    /// 2900: the reduced costs, upper bounds and steps in double-double
+    /// arithmetic; with doubles a row with large coefficients lost its
+    /// right-hand side) and PR #3468 (issue 3461: terms whose largest
+    /// contribution is within the feasibility tolerance are not dropped
+    /// but counted, as is a cover's slack that small; dropped, a
+    /// strengthened row cut off the optimum). HiGHS 1.15.1's, for the CI
+    /// oracle, is strengthen_inequalities_1_15
     pub(crate) fn strengthen_inequalities(&mut self, num_strengthened: &mut i32) -> R {
+        if crate::mip::domain::HIGHS_1_15 {
+            return self.strengthen_inequalities_1_15(num_strengthened);
+        }
+        let mut complementation: Vec<i8> = Vec::new();
+        let mut reducedcost: Vec<CDouble> = Vec::new();
+        let mut upper: Vec<CDouble> = Vec::new();
+        let mut indices: Vec<i32> = Vec::new();
+        let mut positions: Vec<i32> = Vec::new();
+        let mut stack: Vec<i32> = Vec::new();
+        let mut coefs: Vec<f64> = Vec::new();
+        let mut cover: Vec<i32> = Vec::new();
+        // the indices whose reduced cost changed since the last sort
+        let mut changed: Vec<i32> = Vec::new();
+        let mut is_changed: Vec<bool> = Vec::new();
+        let mut merge_buf: Vec<i32> = Vec::new();
+        let feastol = self.primal_feastol;
+        // min and max of HighsCDouble: the first argument unless the
+        // second is strictly smaller (larger)
+        let cmin = |a: CDouble, b: CDouble| if a < b { a } else { b };
+        let cmax = |a: CDouble, b: CDouble| if a > b { a } else { b };
+
+        *num_strengthened = 0;
+        const CHECK_TIME_FREQUENCY: i32 = 100;
+
+        for row in 0..self.num_row {
+            let r = row as usize;
+            if self.rowsize[r] <= 1 {
+                continue;
+            }
+            if self.is_ranged(row) {
+                continue;
+            }
+            let rowsize_limit = 1000.max((self.num_col - self.num_deleted_cols) / 20);
+            if self.rowsize[r] > rowsize_limit {
+                continue;
+            }
+
+            let mut maxviolation: CDouble;
+            let mut continuouscontribution = CDouble::from(0.0);
+            // the largest contribution of the negligible terms that are in
+            // no cover
+            let mut smallcontribution = CDouble::from(0.0);
+            let scale: f64;
+            if self.row_lower[r] != -INF {
+                maxviolation = CDouble::from(self.row_lower[r]);
+                scale = -1.0;
+            } else {
+                maxviolation = CDouble::from(-self.row_upper[r]);
+                scale = 1.0;
+            }
+
+            complementation.clear();
+            reducedcost.clear();
+            upper.clear();
+            indices.clear();
+            positions.clear();
+            stack.push(self.rowroot[r]);
+
+            let mut skiprow = false;
+            while let Some(pos) = stack.pop() {
+                let pu = pos as usize;
+                if self.ar_right[pu] != -1 {
+                    stack.push(self.ar_right[pu]);
+                }
+                if self.ar_left[pu] != -1 {
+                    stack.push(self.ar_left[pu]);
+                }
+                let col = self.a_col[pu];
+                let c = col as usize;
+                skiprow = self.col_lower[c] == -INF || self.col_upper[c] == INF;
+                if skiprow {
+                    break;
+                }
+                let comp: i8;
+                let mut weight = self.a_value[pu] * scale;
+                let ub = CDouble::from(self.col_upper[c]) - CDouble::from(self.col_lower[c]);
+                if weight > 0.0 {
+                    comp = 1;
+                    maxviolation += CDouble::from(self.col_upper[c]) * weight;
+                } else {
+                    comp = -1;
+                    maxviolation += CDouble::from(self.col_lower[c]) * weight;
+                    weight = -weight;
+                }
+                if self.integrality[c] == CONTINUOUS {
+                    continuouscontribution += ub * weight;
+                    continue;
+                }
+                if ub * weight <= feastol {
+                    smallcontribution += ub * weight;
+                    continue;
+                }
+                indices.push(reducedcost.len() as i32);
+                positions.push(pos);
+                reducedcost.push(CDouble::from(weight));
+                complementation.push(comp);
+                upper.push(ub);
+            }
+
+            if (row & CHECK_TIME_FREQUENCY) == 0 || 10 * self.rowsize[r] > rowsize_limit {
+                self.check_time_limit()?;
+            }
+
+            if skiprow {
+                stack.clear();
+                continue;
+            }
+
+            if maxviolation <= feastol {
+                self.row_presolve(row)?;
+                continue;
+            }
+
+            let small_val = std_max(100.0 * feastol, feastol * maxviolation.to_f64());
+            for &i in &changed {
+                is_changed[i as usize] = false;
+            }
+            changed.clear();
+            let mut rounds: u32 = 0;
+            loop {
+                if maxviolation - continuouscontribution - smallcontribution <= small_val || indices.is_empty() {
+                    break;
+                }
+                rounds += 1;
+                if (rounds & 255) == 0 {
+                    self.check_time_limit()?;
+                }
+                // std::make_pair(rc[i1], i1) > std::make_pair(rc[i2], i2)
+                // (HighsCDouble compares by its rounded value): a strict
+                // total order, so any sort gives pdqsort's order
+                let gt = |i1: i32, i2: i32| {
+                    let (a, b) = (reducedcost[i1 as usize].to_f64(), reducedcost[i2 as usize].to_f64());
+                    b < a || (!(a < b) && i2 < i1)
+                };
+                if changed.is_empty() {
+                    pdqsort(&mut indices, |&i1, &i2| gt(i1, i2));
+                } else {
+                    // only the cover and the slack changed since the last
+                    // sort: sort those and merge them into the rest
+                    let mut rest = std::mem::take(&mut merge_buf);
+                    rest.clear();
+                    let mut moved = Vec::with_capacity(changed.len());
+                    for &i in &indices {
+                        if is_changed[i as usize] {
+                            moved.push(i);
+                        } else {
+                            rest.push(i);
+                        }
+                    }
+                    pdqsort(&mut moved, |&i1, &i2| gt(i1, i2));
+                    indices.clear();
+                    let (mut a, mut b) = (0, 0);
+                    while a < rest.len() && b < moved.len() {
+                        if gt(moved[b], rest[a]) {
+                            indices.push(moved[b]);
+                            b += 1;
+                        } else {
+                            indices.push(rest[a]);
+                            a += 1;
+                        }
+                    }
+                    indices.extend_from_slice(&rest[a..]);
+                    indices.extend_from_slice(&moved[b..]);
+                    for &i in &changed {
+                        is_changed[i as usize] = false;
+                    }
+                    changed.clear();
+                    merge_buf = rest;
+                }
+                let mut lambda = maxviolation - continuouscontribution - smallcontribution;
+                cover.clear();
+                cover.reserve(indices.len());
+                for i in (1..=indices.len()).rev() {
+                    let index = indices[i - 1] as usize;
+                    let delta = upper[index] * reducedcost[index];
+                    if upper[index] <= 1000.0 && reducedcost[index] > small_val && lambda - delta <= small_val {
+                        cover.push(index as i32);
+                    } else {
+                        lambda -= delta;
+                    }
+                }
+                if cover.is_empty() || lambda <= small_val {
+                    break;
+                }
+                // std::min_element with the comparator
+                let less = |i1: i32, i2: i32| -> bool {
+                    let (a, b) = (reducedcost[i1 as usize], reducedcost[i2 as usize]);
+                    if a <= 1e-3 || b <= 1e-3 {
+                        return a > b;
+                    }
+                    a < b
+                };
+                let mut alpos = cover[0];
+                for &ci in &cover[1..] {
+                    if less(ci, alpos) {
+                        alpos = ci;
+                    }
+                }
+                let al = reducedcost[alpos as usize];
+                coefs.resize(cover.len(), 0.0);
+                let coverrhs = cmax((lambda / al - feastol).ceil(), CDouble::from(1.0));
+                let mut slackupper = -coverrhs;
+                let mut step = CDouble::from(INF);
+                for i in 0..cover.len() {
+                    let ci = cover[i] as usize;
+                    coefs[i] = (cmin(reducedcost[ci], lambda) / al - self.opt.small_matrix_value).ceil().to_f64();
+                    slackupper += upper[ci] * coefs[i];
+                    step = cmin(step, reducedcost[ci] / coefs[i]);
+                }
+                step = cmin(step, maxviolation / coverrhs);
+                maxviolation -= step * coverrhs;
+
+                // only the cover members' reduced costs change, so only
+                // they can become negligible: their largest contribution
+                // moves to smallcontribution and they leave below
+                for i in 0..cover.len() {
+                    let ci = cover[i] as usize;
+                    reducedcost[ci] -= step * coefs[i];
+                    if reducedcost[ci] * upper[ci] <= feastol {
+                        if reducedcost[ci] > 0.0 {
+                            smallcontribution += reducedcost[ci] * upper[ci];
+                        }
+                        reducedcost[ci] = CDouble::from(0.0);
+                    }
+                }
+                indices.retain(|&i| !(reducedcost[i as usize] <= 0.0));
+                is_changed.resize(reducedcost.len() + 1, false);
+                let mark = |ci: i32, is_changed: &mut Vec<bool>, changed: &mut Vec<i32>| {
+                    if !is_changed[ci as usize] {
+                        is_changed[ci as usize] = true;
+                        changed.push(ci);
+                    }
+                };
+                for &ci in &cover {
+                    mark(ci, &mut is_changed, &mut changed);
+                }
+                if step * slackupper <= feastol {
+                    smallcontribution += step * slackupper;
+                } else {
+                    let slackind = reducedcost.len() as i32;
+                    indices.push(slackind);
+                    reducedcost.push(step);
+                    upper.push(slackupper);
+                    mark(slackind, &mut is_changed, &mut changed);
+                }
+            }
+
+            let threshold = (maxviolation + feastol).to_f64();
+            indices.retain(|&i| !(i as usize >= positions.len() || reducedcost[i as usize].abs() <= threshold));
+            if indices.is_empty() {
+                continue;
+            }
+
+            let update_non_zeros = |s: &mut Self, rhs: &mut CDouble, direction: i32| {
+                for &i in &indices {
+                    let iu = i as usize;
+                    let coefdelta = (reducedcost[iu] - maxviolation) * direction as f64;
+                    let col = s.a_col[positions[iu] as usize];
+                    let c = col as usize;
+                    if complementation[iu] == -1 {
+                        *rhs += coefdelta * s.col_lower[c];
+                        s.add_to_matrix(row, col, coefdelta.to_f64());
+                    } else {
+                        *rhs -= coefdelta * s.col_upper[c];
+                        s.add_to_matrix(row, col, (-coefdelta).to_f64());
+                    }
+                }
+            };
+            if scale < 0.0 {
+                let mut lhs = CDouble::from(self.row_lower[r]);
+                update_non_zeros(self, &mut lhs, -1);
+                self.row_lower[r] = lhs.to_f64();
+            } else {
+                let mut rhs = CDouble::from(self.row_upper[r]);
+                update_non_zeros(self, &mut rhs, 1);
+                self.row_upper[r] = rhs.to_f64();
+            }
+            *num_strengthened += indices.len() as i32;
+        }
+        Ok(())
+    }
+
+    /// HPresolve::strengthenInequalities of HiGHS 1.15.1 (the CI oracle's)
+    fn strengthen_inequalities_1_15(&mut self, num_strengthened: &mut i32) -> R {
         let mut complementation: Vec<i8> = Vec::new();
         let mut reducedcost: Vec<f64> = Vec::new();
         let mut upper: Vec<f64> = Vec::new();
