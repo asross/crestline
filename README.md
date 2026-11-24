@@ -35,9 +35,12 @@ FMA instructions, or gcc with `-ffp-contract=off`); `libstdcxx` follows
 libstdc++'s tie orders instead of libc++'s; `hyper_dfs` makes the
 hyper-sparse triangular solves by HiGHS's depth-first search (by default
 they run in the dense solve's order over a bitmap, which can differ from
-HiGHS in the last bits); `highs_dual_proofs` keeps HiGHS 1.15.1's dual proofs,
-which drop tiny coefficients and can then be invalid (for the oracle only;
-by default crest follows the fix in HiGHS PR #3223). It is all Rust (no C++
+HiGHS in the last bits); `highs_dual_proofs` keeps HiGHS 1.15.1's code
+where crest by default follows a later HiGHS fix (for the oracle only):
+the dual proofs, which drop tiny coefficients and can then be invalid
+(PR #3223), presolve's `strengthenInequalities` (PRs #3234 and #3468) and
+the symmetry refinement (PR #3182); see
+[docs/upstream.md](./docs/upstream.md). It is all Rust (no C++
 compiler needed); its only crates.io dependency is flate2 (pure-Rust
 miniz_oxide backend) for gzip-compressed model files.
 
