@@ -1589,6 +1589,114 @@ suit. At one thread the ratio by itself solves 5 more runs
 itself solves 6 fewer there (`tick_1018_0340` in 8, `ovn_0716_g158` in
 14 of 16), and the two together as many as main, in 0.92 of its time.
 
+## Main against v0.1.3 (2026-11-23)
+
+PRs #82 to #90 together (the path separator's limits, the flip search
+first and its memory, the main solver in the deep search, the stall
+handling, the stall rule and the gap ratio), main against the tag on the
+runners (bench-dispatch runs 45278857339 and 45278860587; 16 seeds,
+36 models, 180 s, 576 pairs per architecture):
+
+| | two threads (arm64 / x86-64) | one thread (arm64) |
+|---|---|---|
+| time to 1%, geometric mean over the models | 0.829 / 0.819 | 0.776 |
+| solved runs of 576 | 555 -> 558 / 559 -> 556 | 526 -> 535 |
+| time to within 1% of the best known | 0.935 / 0.929 | 0.951 |
+| primal gap over the run, difference | -0.027 ± 0.006 / -0.031 ± 0.005 | -0.008 ± 0.007 |
+
+By model at two threads: `dm_small_windlull_noramp` 0.45 / 0.48,
+`dm_full_coarse24_noramp` 0.60 / 0.55, `tick_1018_0340` and
+`tick_1018_0420` 0.64-0.72, the `tick_1025_*` 0.57-0.72, the five
+`ovn_*` 0.72-0.80, the `dm_medium_*` 0.66-1.02; slower:
+`dm_full_prices_noramp` 1.09 [1.02, 1.16] / 1.03 (a 2 s model; the
+flip search first, see above). The runs not solved at two threads are
+`hard_10-03_1340` (none of 16 on either) and 2 / 4 of
+`diverse_10-01_0052`; at one thread also 14 of `diverse_10-01_0052`,
+5 each of `tick_1018_0340` and `tick_1018_0420` (9 each at v0.1.3) and
+one of `ovn_0652_g157`.
+
+## What the bound leaves of the 1% (2026-11-23)
+
+**The measurement.** Main after PR #90 on the runners (the two-thread
+arm64 runs above; the best known is the best incumbent of any run of the
+two comparisons):
+
+| | time to 1% (s, median) | the final bound, from the best known | incumbent within 1% of the best known after (s, median) |
+|---|---|---|---|
+| `tick_1018_0420` | 47 | 0.96% | 3.0 |
+| `tick_1018_0340` | 52 | 0.92% | 3.8 |
+| `diverse_10-01_0052` | 104 | 0.93% | 4.9 |
+| `hard_10-03_1340` | never | 1.08% | 4.8 |
+| the five `ovn_*` | 11-20 | 0.87-0.90% | 3.2-6.9 |
+| `tick_1015_1901`, `tick_1023_2236`, the `tick_1025_*` | 7-10 | 0.84-0.89% | 2.2-4.1 |
+| `lambda_20260930_142050_3c1b60d6` | 10 | 0.83% | 2.6 |
+
+On every tick that takes more than a few seconds the bound ends
+0.83-0.96% from the best plan known. Reaching 1% then needs an incumbent
+within 0.04-0.17% of it; the incumbents are within 1% of the best known
+after 2-7 s, and the rest of each solve goes into that last fraction.
+There, a bound 0.1% of the objective tighter is worth more than any
+change to the search. On `tick_1018_0340` the median incumbent would
+close 1% at 40 s with a bound of -376126, at 20 s with -375336, at 12 s
+with -374660; the bound ends at -376519.
+
+**Per-bank bounds, with crest as the block solver** (the decomposition of
+2026-11-01, `tick_1018_0340`). Without the names: dropping the rows with
+more than 12 entries (110 of them, two per period) leaves one block per
+bank (55 on/off binaries and one to nine modules) and a remainder
+without integer columns. At the root LP's duals for the dropped rows,
+each block is solved as a MIP (crest, one thread, M1); L is the sum of
+the blocks' dual bounds, by the time allowed per block:
+
+| time per block (s) | 0.1 | 1 | 2 | 5 | 10 | 30 |
+|---|---|---|---|---|---|---|
+| L | -376661 | -376428 | -376139 | -375749 | -375305 | -374789 |
+| CPU time in all (s) | 2.3 | 20 | 37 | 74 | 123 | 208 |
+
+(The LP bound is -379801, crest's root bound after its cuts -376583 on
+seed 0.) A block's root cuts give what the model's root cuts give. What
+goes past them is each block's tree: up to 6600 nodes, and the largest
+block is still 1.3% open after 30 s. The bound that would stop the solve
+at 20 s costs two minutes of CPU, so, as on `hard_10-03_1340` then: too
+slow.
+
+**What the bound would be worth.** The 22 inequalities "this block's
+objective at these prices is at least its bound" (the 30 s bounds),
+added to the model as rows: 21, 11, 18 and 10 s to 1% (seeds 0-3, two
+threads, M1) against 29, 57, 20 and 38 s, with a root LP that the 22
+dense rows make slower. Crest's cuts add nothing on top of those rows
+(the bound stays at L: at one vector of prices the rows make a whole
+face optimal, and a cut that removes a vertex of it moves nothing).
+
+**Where the gap comes from.** In a block's LP the switch sits at a
+constant fraction over many periods, a duty cycle that holds the
+modules' state of charge where the prices want it, at no switching cost;
+a plan has to switch, pay for each change, and miss the level. A
+relaxation that takes each module with its bank's switch but leaves the
+switching cost outside gives the LP bound back (a constant fraction is
+an average of on/off patterns). With the switching cost inside each
+module's set (split equally among the modules), the modules' bounds, by
+a subgradient method over the prices that tie their copies of the switch
+together, reach all of what the bank's MIP adds to its LP on a bank of
+one module, 87% on one of three (80 iterations) and 45% on one of two
+(300 iterations).
+
+**What it would take.** A module with its bank's switch is a
+one-dimensional state (its state of charge) under a binary control with
+a cost per change: its best plan at given prices is a dynamic program
+over time with a piecewise linear value function, exact and far cheaper
+than a tree. A bound from that needs the detection of the chains (as for
+the storage cuts above), the dynamic program, an ascent over the prices
+of the copies, and a way into the root (rows as above, or a bound next
+to the LP's). Not built: it is specific to this family of models, and of
+the suite only the `tick_1018_*` would gain much (the per-bank bounds
+are 0.5% past crest's there, 0.1% on `hard_10-03_1340` and
+`diverse_10-01_0052`, and behind crest's cuts on `ovn_0636_g147`).
+
+For the application: on these ticks the plan after 10 s is within
+0.2-0.6% of the best known. The 1% that takes the rest of the time is
+mostly the bound's distance from the optimum, not the plan's.
+
 ## Tried and rejected
 
 - Devex pricing for the LNS LPs: cheaper per iteration on dense ramp LPs,
@@ -1661,3 +1769,6 @@ itself solves 6 fewer there (`tick_1018_0340` in 8, `ovn_0716_g158` in
   two threads, time to within 1% of the best known 1.00-1.02.
 - No sub-MIP heuristics in the main solver at all, again (see "A gap that
   is nearly closed").
+- The per-bank Lagrangian bound with crest as the block solver, as rows
+  in the root: worth 0.44 of the time on `tick_1018_0340` once given,
+  two minutes of CPU to compute (see "What the bound leaves of the 1%").
