@@ -145,6 +145,12 @@ unless it is anonymized.
   default):** no root reduced cost, RENS or RINS heuristic while the gap
   is at most that many times the target gap (see dispatch.md). The
   oracle sets it to 0 for crest.
+- **The refactorization clock (`mip_lp_refactor_clock`, on by
+  default):** in the MIP's LPs the dual simplex's synthetic clock is
+  restarted only when the factor is new, not at every rebuild, so a
+  sequence of short re-solves refactorizes when its solves have cost as
+  much as a new factor (see performance.md); the C++ gets there only at
+  the update limit. The oracle sets it to false for crest.
 
 ## Rules for each step
 

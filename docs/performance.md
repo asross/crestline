@@ -1880,6 +1880,121 @@ So the 8-thread kills come from the parallel tree search, which HiGHS
 runs only when asked; capping it (workers, worker cut pools) would change
 the search and is not done here.
 
+## Refactorization over a sequence of re-solves: `mip_lp_refactor_clock` (2026-11-23)
+
+**The profile.** The search phase of `tick_1018_0340` (one thread, M1):
+all of it is graph LNS, and 92% of that its LP re-solves. Over 8000
+dual simplex solves, in instructions per solve:
+
+| | M instructions |
+|---|---|
+| the rebuilds (nearly all of it the one that confirms the optimum: primal and dual values from scratch) | 12.0 |
+| the iterations (8.2 per solve) | 6.2 |
+| the rest of the solve (start, clean-up, return) | 5.8 |
+
+The confirming rebuild found nothing more to do in any of the 8000. The
+factor is rebuilt 51 times, once per 1300 iterations, at 49 M
+instructions each, so it carries about 650 updates on average.
+
+**Why so rarely.** HiGHS refactorizes at the update limit (5000), on
+numerical trouble, or when its synthetic clock says that the solves
+since the last INVERT have cost as much as an INVERT (after at least 50
+updates). That clock is restarted at every rebuild, with or without a
+refactorization. A re-solve in the MIP has two rebuilds, at its start
+and to confirm the optimum, a few iterations apart, and neither
+refactors: over a sequence of short re-solves the clock never runs out,
+and it fires only inside a long solve.
+
+**The change.** In the MIP's LPs the clock is restarted only when the
+factor is new: `simplex_refactor_clock_over_rebuilds`, which the MIP sets
+for its LP relaxation unless `mip_lp_refactor_clock` is false (the
+oracle's setting; a plain LP solve keeps HiGHS's rule). On the same seed
+the factor is then rebuilt once per 700 iterations, an iteration costs
+0.45 M instructions instead of 0.76 M and a solve 20.7 M instead of
+24.0 M.
+
+**Runners** (bench-dispatch runs 45303727610 and 45303725216: 16 seeds,
+36 models, 180 s, 576 pairs per architecture, against the option off):
+
+| | one thread (arm64) | two threads (arm64 / x86-64) |
+|---|---|---|
+| time to 1%, geometric mean over the models | 0.961 | 0.958 / 0.953 |
+| solved runs of 576 | 535 -> 541 | 558 -> 558 / 558 -> 559 |
+| time to within 1% of the best known | 0.969 [0.953, 0.986] | 0.965 [0.955, 0.974] / 0.956 [0.946, 0.966] |
+| primal gap over the run, difference | -0.036 ± 0.008 | -0.031 ± 0.007 / -0.037 ± 0.007 |
+
+By model at two threads: the five `ovn_*` 0.84-0.96, `tick_1018_0340`
+and `tick_1018_0420` 0.87-0.95, `lambda_20260930_142050_3c1b60d6` 0.76 /
+0.77, `diverse_10-01_0052` 0.69 / 0.80, `tick_1015_1901` 0.92 / 0.91,
+and the models that solve at the root 0.94-1.02 (their cut rounds are
+re-solves too: `dm_full_pert_s1_noramp` 0.960 [0.939, 0.982] / 0.943
+[0.924, 0.963]). At one thread: `tick_1025_0028` 0.81 [0.66, 1.00],
+`tick_1015_1901` 0.86 [0.78, 0.96], `ovn_1148_g105` 0.67 [0.45, 0.99],
+and more runs solved of `diverse_10-01_0052` (2 -> 6) and
+`tick_1018_0420` (11 -> 13).
+
+One model is slower at two threads, `tick_1025_0004`: 1.38 [1.05, 1.80]
+/ 1.43 [1.08, 1.90] over these 16 seeds, 1.08 [0.86, 1.36] / 1.10 [0.88,
+1.37] over 32 more (run 45313725729, where `tick_1025_0028`,
+`tick_1023_2236` and `tick_1015_1901` are at 0.92-0.96), and 1.19 [0.99,
+1.43] over 48 pairs on the M1 (8.5 s against 7.1 s). At one thread it is
+1.00 [0.85, 1.17], and its time to within 1% of the best known is
+shorter at two threads as well (0.93 / 0.91). What differs there is the
+main solver's quick search, which ends 0.4 s earlier and with a gap of
+1.40% instead of 1.08% (medians of 24 seeds, M1); the rest of the solve
+is then the helper's deep search and the cut rounds. At one thread the
+quick search ends where it did (objective +123 ± 185 after its flip
+polish, 24 seeds), so it is the two threads' timing against each other
+on this model, not the LPs' solutions. Accepted as the cost of the
+change.
+
+**MIPLIB** (bench-std, the 66 models HiGHS solves in under a minute, one
+thread, 300 s, default gap; runs 45303730750, 45313159338 and
+45313162729 for seeds 0, 1 and 2, arm64): no wrong answer; solved 196 of
+198 against 195; shifted (10 s) geometric mean time ratio 1.015, 1.002
+and 1.013, over the 198 pairs 1.010 [0.981, 1.040]. The paths change
+(any change to the LPs' rounding does that), and the times with them:
+over the three seeds `neos-1456979` 0.81, `neos-3083819-nubu` 0.82,
+`neos-1582420` 0.84, and `tr12-30` 1.25, `pk1` 1.23, `neos-933966` 2.55
+(a root solve of 24 s against a tree of 222 nodes on two seeds of
+three; it is one of the models the packing orbitopes decide, see
+"MIPLIB instances where crest loses"). Where a run has more than 2000
+nodes, the nodes per second are
+0.70-1.23 of the base's, 1.03 at the median. Neutral there, as far as
+three seeds show.
+
+**Not kept: an optimum without the confirming rebuild.** Two variants,
+both behind an environment variable on a branch (not merged):
+- The updated values taken for optimal when at most 50 iterations
+  were made since the values were fresh. It saves the 10 M
+  instructions, but the updated values are not the recomputed ones: over
+  8000 solves the primal values differ by more than 1e-9 in 9% (up to
+  1e-6) and the dual values by 1e-8 to 1e-7 in half (the factor's 650
+  updates). The run then had four times as many solves of 21-100
+  iterations (536 of 5000 against 127), its first deep search ended
+  at 15 s (the other's was still running at 40 s) and its incumbent at
+  40 s was 0.3% worse.
+- The primal values recomputed and the dual values as updated, on top
+  of the clock change: where the path stays the same
+  (`ovn_0636_g147`, the same incumbent and LP iterations) the solve
+  takes 0.97 of the time; over 24 pairs (8 models, 3 seeds, one thread,
+  M1, instruction clock) 1.02 [0.90, 1.17]. Too little for what it
+  gives up.
+
+**Not kept: a sparse Cholesky for IPX's linear systems** (branch
+`exp/ipx-cholesky`). On the dispatch root LPs IPX's interior point
+iterations take 50-80 ms each (3.1 s of 3.45 s on
+`dm_full_pert_s1_ramp`; the crossover takes 0.35 s). The normal matrix
+has a sparse factor (minimum degree: 0.9-1.1 M entries for 25-29k rows),
+so the prototype runs the interior point method on its Cholesky
+factorization (up-looking, by rows) as the preconditioner of the
+conjugate residual method, which then takes one step per solve. A
+factorization takes 52 ms (72-87 M updates through index arrays), so an
+iteration costs 63-80 ms: what IPX's costs. A supernodal factorization
+could be three to five times faster, but on the production ticks the
+first root LP is 1.5 s of dual simplex against an estimated 1.2-1.3 s
+then: not pursued.
+
 ## Other platforms
 
 - **gcc / libstdc++.** With the `libstdcxx` and `no_fma` features, Crestline

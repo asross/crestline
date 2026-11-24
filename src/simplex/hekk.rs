@@ -299,6 +299,7 @@ pub struct CHekk {
     pub small_matrix_value: f64,
     pub dual_steepest_edge_weight_error_tolerance: f64,
     pub no_unnecessary_rebuild_refactor: bool,
+    pub refactor_clock_over_rebuilds: bool,
     pub rebuild_refactor_solution_error_tolerance: f64,
     pub option_simplex_strategy: i32,
     pub simplex_min_concurrency: i32,

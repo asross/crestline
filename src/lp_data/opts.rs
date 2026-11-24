@@ -391,6 +391,7 @@ impl Opts {
             random_seed: self.random_seed,
             output_flag: self.output_flag,
             no_unnecessary_rebuild_refactor: self.no_unnecessary_rebuild_refactor,
+            refactor_clock_over_rebuilds: self.simplex_refactor_clock_over_rebuilds,
             allow_unbounded_or_infeasible: self.allow_unbounded_or_infeasible,
             less_infeasible_dse_check: self.less_infeasible_DSE_check,
             less_infeasible_dse_choose_row: self.less_infeasible_DSE_choose_row,
@@ -607,6 +608,7 @@ options! {
     mip_graph_lns_deep_early: bool = false;
     mip_symmetry_static_orbitopes: bool = true;
     mip_lp_scaling: bool = false;
+    mip_lp_refactor_clock: bool = true;
     mip_graph_lns_flip_first: bool = true;
     mip_graph_lns_flip_memory: bool = true;
     mip_graph_lns_stall_nodes: int = 100;
@@ -666,6 +668,7 @@ options! {
     full_lp_kkt_check: bool = true;
     simplex_unscaled_solution_strategy: int = 1;
     no_unnecessary_rebuild_refactor: bool = true;
+    simplex_refactor_clock_over_rebuilds: bool = false;
     rebuild_refactor_solution_error_tolerance: double = 1e-08;
     dual_steepest_edge_weight_error_tolerance: double = INF;
     dual_steepest_edge_weight_log_error_threshold: double = 10.0;
@@ -781,7 +784,7 @@ mod tests {
     #[test]
     fn names_set_and_get() {
         let mut o = Opts::default();
-        assert_eq!(NAMES.len(), 174);
+        assert_eq!(NAMES.len(), 176);
         assert!(o.set("presolve", OptValue::Str(b"off")));
         assert_eq!(o.presolve, b"off");
         assert!(o.set("time_limit", OptValue::Int(3)));
