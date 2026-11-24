@@ -228,6 +228,7 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_graph_lns_flip_memory` | true: the flip search leaves a move that did not improve untried until a decision column in a row of one of its columns has changed (false: as the C++; see "The flip search's memory of failed moves") |
 | `mip_graph_lns_stall_nodes` | 100: graph LNS stops a neighbourhood's tree search that has gone this many LP solves without a new incumbent (0: only at the node limit, as the C++; see "A neighbourhood search that stalls") |
 | `mip_heuristic_min_gap_ratio` | 1.1: with `mip_rel_gap` of at least 0.001, no root reduced cost, RENS or RINS heuristic while the gap is at most this many times the target gap (0: no such rule, as HiGHS; see "A gap that is nearly closed") |
+| `mip_graph_lns_deep_rounds` | true: after its deep search at the root, graph LNS runs further deep searches while the gap is open and each closes 1% of it (false: one deep search, then the sub-MIP heuristics and the tree) |
 | `mip_lp_refactor_clock` | true: the MIP's LP relaxation is solved with `simplex_refactor_clock_over_rebuilds` (false: as in HiGHS; see [performance.md](./performance.md)) |
 | `simplex_refactor_clock_over_rebuilds` | false (true in the MIP's LP relaxation): the dual simplex's clock for refactorization keeps running over rebuilds that do not refactor |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
@@ -1698,6 +1699,73 @@ are 0.5% past crest's there, 0.1% on `hard_10-03_1340` and
 For the application: on these ticks the plan after 10 s is within
 0.2-0.6% of the best known. The 1% that takes the rest of the time is
 mostly the bound's distance from the optimum, not the plan's.
+
+## Further deep searches at the root (`mip_graph_lns_deep_rounds`, 2026-11-24)
+
+**The case.** Where the main solver's thread spends a two-thread solve
+of `tick_1018_0340` (M1, sampled over the whole solve):
+
+| | a slow run (51 s) | a fast run (25 s) |
+|---|---|---|
+| graph LNS | 27% | 73% |
+| sub-MIP heuristics (root reduced cost, RENS, RINS) | 50% | 0% |
+| the tree | 8% | 0% |
+
+After its cut rounds the main solver runs one deep search. The helper
+runs them in a loop and finds most improvements first, so the main
+solver's own neighbourhoods stall and its search ends early; what
+follows are the sub-MIP heuristics and the tree, which find nothing on
+these models (every incumbent is graph LNS's, 2026-10-18) while the gap
+is still open. The sub-MIPs' analytic centre LPs also run IPX on a third
+thread of the pool. With one thread the order is the same: one deep
+search, the sub-MIP heuristics, a turn of the tree, and only then graph
+LNS again.
+
+**The change.** After the deep search at the root, while the target gap
+is not reached and the last round (with what a helper found meanwhile)
+closed 1% of the gap, another deep search, up to 50: the rule of PR #86
+for a wide gap with a helper, now for any open gap and without a helper
+too. When a round does not pay, the sub-MIP heuristics and the tree
+follow as before. `mip_graph_lns_deep_rounds = false` is the old path
+(the oracle's setting).
+
+**Local** (M1, instruction clock). Two threads, 8 seeds:
+`tick_1018_0340` 33.9 -> 28.7 s and `tick_1018_0420` 33.9 -> 29.5 s
+(shifted geometric means); the heater-HTF and gas-boiler models are
+unchanged (4 seeds each; they solve before the rule acts). One thread, 8
+harder models, 4 seeds: 21 of the 32 pairs are the same run (solved
+within the first deep search), 10 of the other 11 are faster
+(`ovn_0636_g147` 140 -> 28 s, `tick_1018_0420` 158 -> 67 s,
+`tick_1018_0340` 169 -> 96 s), over all 0.865 [0.768, 0.975].
+
+**Runners** (bench-dispatch, 16 seeds, 36 models, 180 s, 576 pairs per
+architecture; run 45321925536 at two threads against main, run
+45324817093 at one thread against the option off):
+
+| | two threads (arm64 / x86-64) | one thread (arm64) |
+|---|---|---|
+| time to 1%, geometric mean over the models | 0.993 / 0.989 | 0.947 |
+| solved runs of 576 | 558 -> 559 / 558 -> 560 | 541 -> 547 |
+| time to within 1% of the best known | 0.997 [0.994, 1.000] / 0.998 [0.996, 1.001] | 1.001 [0.999, 1.003] |
+
+At two threads it acts on the slowest solved ticks: `tick_1018_0340`
+0.82 [0.71, 0.95] / 0.94 [0.87, 1.02], `tick_1018_0420` 0.86 [0.76,
+0.98] / 0.89 [0.82, 0.96], `ovn_0652_g157` 1.00 / 0.82 [0.70, 0.97],
+and `diverse_10-01_0052` is solved in 15 runs of 16 instead of 14 and
+13. `dm_small_windlull_noramp` is at 1.06 [0.98, 1.14] / 1.06 [0.95,
+1.17] (a 3.4 s model that the bound closes); the rest are within 4%.
+At one thread the models that solve within the first deep search take
+the same path. The others: `tick_1018_0340` 0.73 [0.58, 0.91] with 14
+runs solved against 12, `tick_1018_0420` 0.73 [0.59, 0.92] with 16
+against 13, the five `ovn_*` 0.76-0.94 (`ovn_0636_g147` and
+`ovn_0652_g157` in 16 runs against 15), `diverse_10-01_0052` 0.63 [0.49,
+0.81] on the runs both solve (5 against 6 of 16).
+
+MIPLIB (bench-std run 45325591560: the 66 models HiGHS solves in under
+a minute, `mip_rel_gap = 0.01`, one thread, arm64, against the option
+off): the same node count and objective on 64 models; on `nu25-pr12`
+and `mc11` another incumbent within the 1% (at the root, in the same
+time).
 
 ## Tried and rejected
 
