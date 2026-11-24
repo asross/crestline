@@ -65,10 +65,17 @@ impl Presolve<'_> {
 
             self.convert_implied_integer(col, -1, false)?;
 
+            // shift an integer column to a lower bound of zero. HiGHS since
+            // PR #2990 (not 1.15.1) only if it is binary but for the shift:
+            // a general integer's shift moves its rows' sides, and on rows
+            // with tiny coefficients the rounding of the new side has
+            // given implied bounds that cut off every solution (random
+            // models 1095, 147, 501, 1576, 1179 of bench/fuzz.py)
             if self.integrality[c] != CONTINUOUS
                 && self.col_lower[c] != 0.0
                 && (self.col_lower[c] != -INF || self.col_upper[c] != INF)
                 && self.col_upper[c] - self.col_lower[c] > 0.5
+                && (crate::mip::domain::HIGHS_1_15 || self.col_upper[c] - self.col_lower[c] < 1.5)
             {
                 if self.col_upper[c].abs() > self.col_lower[c].abs() {
                     if self.col_lower[c].abs() < 1000.5 {

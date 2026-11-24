@@ -1095,6 +1095,9 @@ impl Presolve<'_> {
         }
         let old_upper = self.col_upper[c];
         self.col_upper[c] = new_upper;
+        // a tighter upper bound may no longer be strictly implied: then the
+        // <= side of the column's dual constraint is lost
+        self.reset_row_dual_implied_bounds_if_dual_side_lost(col, false);
         self.check_col_bounds(col, None)?;
         let mut p = self.colhead[c];
         while p != -1 {
@@ -1118,6 +1121,9 @@ impl Presolve<'_> {
         }
         let old_lower = self.col_lower[c];
         self.col_lower[c] = new_lower;
+        // a tighter lower bound may no longer be strictly implied: then the
+        // >= side of the column's dual constraint is lost
+        self.reset_row_dual_implied_bounds_if_dual_side_lost(col, true);
         self.check_col_bounds(col, None)?;
         let mut p = self.colhead[c];
         while p != -1 {
@@ -1212,6 +1218,8 @@ impl Presolve<'_> {
             self.col_upper_source[c] = origin_row;
         }
         self.impl_col_upper[c] = new_upper;
+        // a relaxed implied upper bound: as in change_col_upper
+        self.reset_row_dual_implied_bounds_if_dual_side_lost(col, false);
         if !new_implied_free && std_min(old_impl_upper, new_upper) >= self.col_upper[c] {
             return;
         }
@@ -1251,6 +1259,8 @@ impl Presolve<'_> {
             self.col_lower_source[c] = origin_row;
         }
         self.impl_col_lower[c] = new_lower;
+        // a relaxed implied lower bound: as in change_col_lower
+        self.reset_row_dual_implied_bounds_if_dual_side_lost(col, true);
         if !new_implied_free && std_max(old_impl_lower, new_lower) <= self.col_lower[c] {
             return;
         }
@@ -1527,6 +1537,52 @@ impl Presolve<'_> {
         let affected = std::mem::take(&mut self.col_impl_source_by_row[r]);
         for &col in &affected {
             self.reset_col_implied_bounds(col, row);
+        }
+    }
+
+    /// isStrictlyImpliedForDual (HiGHS PR #3332): the column's lower (upper)
+    /// bound is strictly implied by the rows, so it is never active and
+    /// the column's dual constraint has the side >= (<=) its cost. For a
+    /// column singleton, implied within the feasibility tolerance is enough
+    pub(crate) fn is_strictly_implied_for_dual(&self, col: i32, is_lower_bound: bool) -> bool {
+        let implied_margin =
+            if self.colsize[col as usize] != 1 { self.primal_feastol } else { -self.primal_feastol };
+        if is_lower_bound {
+            self.is_lower_strictly_implied(col, Some(implied_margin))
+        } else {
+            self.is_upper_strictly_implied(col, Some(implied_margin))
+        }
+    }
+
+    /// resetRowDualImpliedBoundsIfDualSideLost (HiGHS PR #3332, not in
+    /// 1.15.1): once the column's lower (upper) bound is no longer
+    /// strictly implied (it was tightened, or the bound the rows imply was
+    /// relaxed), the >= (<=) side of its dual constraint is lost, and the
+    /// row dual bounds derived from that side are reset. 1.15.1 kept them
+    /// and made dual reductions from them (a wrong optimum on random model
+    /// 1730 of bench/fuzz.py)
+    pub(crate) fn reset_row_dual_implied_bounds_if_dual_side_lost(&mut self, col: i32, is_lower_bound: bool) {
+        if crate::mip::domain::HIGHS_1_15 || self.is_strictly_implied_for_dual(col, is_lower_bound) {
+            return;
+        }
+        let c = col as usize;
+        if self.impl_row_dual_source_by_col[c].is_empty() {
+            return;
+        }
+        // over the column, not the set: the sign of the coefficient decides
+        let mut p = self.colhead[c];
+        while p != -1 {
+            let pu = p as usize;
+            let row = self.a_row[pu];
+            let positive = self.a_value[pu] > 0.0;
+            p = self.a_next[pu];
+            if positive == is_lower_bound {
+                if self.row_dual_lower_source[row as usize] == col {
+                    self.change_impl_row_dual_lower(row, -INF, -1);
+                }
+            } else if self.row_dual_upper_source[row as usize] == col {
+                self.change_impl_row_dual_upper(row, INF, -1);
+            }
         }
     }
 
