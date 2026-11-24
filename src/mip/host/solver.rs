@@ -429,6 +429,7 @@ impl MipSolver {
                 mip_graph_lns_flip_memory: o.mip_graph_lns_flip_memory,
                 mip_graph_lns_stall_nodes: o.mip_graph_lns_stall_nodes,
                 mip_heuristic_min_gap_ratio: o.mip_heuristic_min_gap_ratio,
+                mip_graph_lns_deep_rounds: o.mip_graph_lns_deep_rounds,
             },
             helper_pool: self.concurrent_lns,
             lns_target: self.lns_target_reached,

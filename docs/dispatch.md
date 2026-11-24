@@ -1680,8 +1680,8 @@ an average of on/off patterns). With the switching cost inside each
 module's set (split equally among the modules), the modules' bounds, by
 a subgradient method over the prices that tie their copies of the switch
 together, reach all of what the bank's MIP adds to its LP on a bank of
-one module, 87% on one of three (80 iterations) and 45% on one of two
-(300 iterations).
+one module, 92% on one of three and 45% on one of two (300 iterations
+each).
 
 **What it would take.** A module with its bank's switch is a
 one-dimensional state (its state of charge) under a binary control with
