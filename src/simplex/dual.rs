@@ -1259,8 +1259,16 @@ impl<'a> Dual<'a> {
             self.compute_infeasibilities_for_reporting();
             self.report_rebuild(local_rebuild_reason);
         }
-        // Record the synthetic clock for INVERT, and zero it for UPDATE
-        self.reset_synthetic_clock();
+        // Record the synthetic clock for INVERT, and zero it for UPDATE.
+        // Crestline (refactor_clock_over_rebuilds): only when the factor
+        // is fresh. The clock says when the solves with the updated
+        // factor have cost more than a new one; restarted at every
+        // rebuild, it never says so over a sequence of short re-solves
+        // (two rebuilds each, neither refactoring), and the factor
+        // carries updates by the hundred until the update limit
+        if !x.refactor_clock_over_rebuilds || refactor_basis_matrix || *self.e.update_count == 0 {
+            self.reset_synthetic_clock();
+        }
         // Dual simplex doesn't maintain the number of primal
         // infeasibilities, so set it to an illegal value now
         *self.e.num_primal_infeasibilities = K_ILLEGAL_INFEASIBILITY_COUNT;

@@ -116,6 +116,9 @@ impl LpS {
         if !o.mip_lp_scaling && ms.num_row() >= 10000 {
             s.set_option("simplex_scale_strategy", OptValue::Int(0));
         }
+        if o.mip_lp_refactor_clock {
+            s.set_option("simplex_refactor_clock_over_rebuilds", OptValue::Bool(true));
+        }
         s
     }
 
