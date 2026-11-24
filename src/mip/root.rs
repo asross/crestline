@@ -663,6 +663,16 @@ impl MipData {
                         && sc.upper_bound < INF
                         && sc.upper_bound - sc.lower_bound > 3.0 * (sc.upper_bound - sc.optimality_limit)
                 };
+                // Crestline (mip_graph_lns_deep_rounds): the target gap is
+                // not reached yet
+                let open = |m: &MipData| {
+                    let sc = m.sc();
+                    o.mip_graph_lns_deep_rounds
+                        && !m.submip
+                        && !m.concurrent_helper
+                        && sc.upper_bound < INF
+                        && sc.lower_bound < sc.optimality_limit
+                };
                 if run_graph_lns
                     && !self.rootlpsol().is_empty()
                     && (self.concurrent_helper
@@ -680,12 +690,17 @@ impl MipData {
                         sc.lns_tree_wait = 1000i64.max(lns_iters + sc.total_lp_iterations);
                         sc.lns_tree_next = sc.total_lp_iterations + sc.lns_tree_wait;
                     }
-                    // while the gap stays wide, further rounds as long as one
-                    // (with what the helper found meanwhile) closes 1% of it
+                    // while the gap is open (without the option: wide, with a
+                    // helper), further rounds as long as one (with what a
+                    // helper found meanwhile) closes 1% of it. What follows,
+                    // the sub-MIP heuristics and the tree, found nothing on
+                    // the dispatch ticks: with a helper they took half of
+                    // the main solver's time in the slow runs, while the
+                    // incumbents came from the deep searches
                     let mut ub = lns_upper_bound;
                     let mut round = 0;
                     while round < 50
-                        && wide(self)
+                        && (wide(self) || open(self))
                         && self.sc().upper_bound < ub - 0.01 * (ub - self.sc().lower_bound)
                         && !self.check_limits_rs(0)
                     {

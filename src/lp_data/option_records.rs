@@ -973,6 +973,16 @@ pub const RECORDS: &[Meta] = &[
     Meta {
         type_: BOOL,
         advanced: false,
+        name: "mip_graph_lns_deep_rounds",
+        description: "After its deep search at the root, graph LNS runs further deep searches while the gap is open and each closes 1% of it, before the sub-MIP heuristics and the tree (false: one deep search)",
+        bool_default: true,
+        int: (0, 0, 0),
+        dbl: (0.0, 0.0, 0.0),
+        str_default: "",
+    },
+    Meta {
+        type_: BOOL,
+        advanced: false,
         name: "mip_heuristic_run_root_reduced_cost",
         description: "Use the rootReducedCost heuristic",
         bool_default: true,

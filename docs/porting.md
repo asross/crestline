@@ -145,6 +145,11 @@ unless it is anonymized.
   default):** no root reduced cost, RENS or RINS heuristic while the gap
   is at most that many times the target gap (see dispatch.md). The
   oracle sets it to 0 for crest.
+- **Further deep searches at the root (`mip_graph_lns_deep_rounds`, on
+  by default):** after graph LNS's deep search at the root, further ones
+  while the gap is open and each closes 1% of it (see dispatch.md); the
+  C++ goes on to the sub-MIP heuristics and the tree after one. The
+  oracle sets it to false for crest.
 - **The refactorization clock (`mip_lp_refactor_clock`, on by
   default):** in the MIP's LPs the dual simplex's synthetic clock is
   restarted only when the factor is new, not at every rebuild, so a
