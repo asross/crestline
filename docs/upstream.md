@@ -46,6 +46,20 @@ Our own earlier fix (move every nonzero entry to the right-hand side)
 was stricter and cost about 1% of MIPLIB time; crest now uses the
 upstream version so that the oracle can follow HiGHS once it is released.
 
+## Other HiGHS fixes made after 1.15.1 that crest follows (2026-11-24)
+
+The fuzz workflow compares against the latest HiGHS release and its
+`check/instances`. With 1.16.0 that brought three reproducers of bugs
+fixed upstream after 1.15.1, which crest (a port of 1.15.1) still had,
+v0.1.3 included. Crest now follows the fixes by default; the oracle's
+build (`highs_dual_proofs`) keeps 1.15.1's code.
+
+| check instance | crest before | now | the HiGHS fix |
+|---|---|---|---|
+| `issue-2900` | optimal -0 (wrong) | optimal 294856559.369 | [PR #3234](https://github.com/ERGO-Code/HiGHS/pull/3234): `HPresolve::strengthenInequalities` keeps its reduced costs, upper bounds and steps in double-double arithmetic; with doubles a row with large coefficients lost its right-hand side |
+| `issue-3461` | optimal 23138 (wrong) | optimal 21166 | [PR #3468](https://github.com/ERGO-Code/HiGHS/pull/3468): in the same function, a term whose largest contribution is within the feasibility tolerance (and a cover's slack that small) is counted in the row's violation instead of being dropped; dropped, the strengthened row cut off the optimum |
+| `issue-3166` | panic (a cell end before its start) | solves | [PR #3182](https://github.com/ERGO-Code/HiGHS/pull/3182): `HighsSymmetryDetection::partitionRefinement` removes the cell records and certificate entries of the splits it undoes when it prunes |
+
 ## Draft, not filed: bounds and substitutions through tiny coefficients cut off feasible points
 
 **Version.** HiGHS 1.15.1 (`highs/mip/HighsDomain.cpp`,
