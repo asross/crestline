@@ -1113,6 +1113,8 @@ impl SymmetryDetection {
             }
             let cell_end = self.current_partition_links[cell_start as usize];
             debug_assert!(cell_end >= cell_start);
+            let start_creation_stack_size = self.cell_creation_stack.len();
+            let start_certificate_size = self.curr_node_certificate.len();
 
             // vertices with updated hash values go to the end of the cell
             let vh = &self.vertex_hash;
@@ -1163,6 +1165,20 @@ impl SymmetryDetection {
                 while i >= refine_start {
                     self.update_cell_membership(i, first_cell_start, false);
                     i -= 1;
+                }
+                // HiGHS PR #3182 (issue 3166; not in 1.15.1): the cells
+                // split before the prune are undone above, so their
+                // records go too. Left there, a later backtrack restored
+                // a cell end before its start (an out-of-bounds access in
+                // the C++, a panic here)
+                if !crate::mip::domain::HIGHS_1_15 {
+                    self.cell_creation_stack.truncate(start_creation_stack_size);
+                    self.curr_node_certificate.truncate(start_certificate_size);
+                    if !self.first_leave_certificate.is_empty() {
+                        let n = start_certificate_size as i32;
+                        self.first_leave_prefix_len = self.first_leave_prefix_len.min(n);
+                        self.best_leave_prefix_len = self.best_leave_prefix_len.min(n);
+                    }
                 }
                 return false;
             }
