@@ -228,6 +228,8 @@ integer column at a fractional value, which cannot give a violated cut
 | `mip_graph_lns_flip_memory` | true: the flip search leaves a move that did not improve untried until a decision column in a row of one of its columns has changed (false: as the C++; see "The flip search's memory of failed moves") |
 | `mip_graph_lns_stall_nodes` | 100: graph LNS stops a neighbourhood's tree search that has gone this many LP solves without a new incumbent (0: only at the node limit, as the C++; see "A neighbourhood search that stalls") |
 | `mip_heuristic_min_gap_ratio` | 1.1: with `mip_rel_gap` of at least 0.001, no root reduced cost, RENS or RINS heuristic while the gap is at most this many times the target gap (0: no such rule, as HiGHS; see "A gap that is nearly closed") |
+| `mip_lp_refactor_clock` | true: the MIP's LP relaxation is solved with `simplex_refactor_clock_over_rebuilds` (false: as in HiGHS; see [performance.md](./performance.md)) |
+| `simplex_refactor_clock_over_rebuilds` | false (true in the MIP's LP relaxation): the dual simplex's clock for refactorization keeps running over rebuilds that do not refactor |
 | `simplex_dse_exact_init_max_rows` | no limit (20000 in the MIP's LP relaxation) |
 | `simplex_keep_random_vectors` | false (true in the MIP's LP relaxation) |
 | `full_lp_kkt_check` | true (false in the MIP's LP relaxation) |
