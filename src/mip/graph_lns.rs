@@ -128,7 +128,7 @@ impl GraphLns<'_> {
 
     /// an LP solve within what is left of the search's LP iteration
     /// budget, and at most a quarter of the first root LP's iterations (on
-    /// the dispatch suite no re-solve takes over 0.15 of them): a single
+    /// the private suite no re-solve takes over 0.15 of them): a single
     /// LP must not run past them (a dive's re-solve of a badly conditioned
     /// infeasible LP otherwise ran for minutes).
     ///
@@ -336,8 +336,8 @@ impl GraphLns<'_> {
         let mut solved = true; // the LP is solved on entry
         // Crestline (mip_graph_lns_stall_nodes): a search that has not found
         // an incumbent for that many LP solves stops. A neighbourhood that
-        // pays does so early (on the hard dispatch ticks the first
-        // incumbent of a search comes within 100 solves in nine of ten),
+        // pays does so early (on the hard models of the private suite the
+        // first incumbent of a search comes within 100 solves in nine of ten),
         // while a quarter to a half of all solves went to searches that ran
         // to the node limit without one.
         let stall = self.m.opts.mip_graph_lns_stall_nodes;
@@ -595,8 +595,8 @@ impl GraphLns<'_> {
     /// columns has changed (the don't-look bits of local search). After
     /// each improving move the search starts again from the best
     /// candidate, and without the memory most of what it then tries are
-    /// the moves that have just failed: on an overnight dispatch tick
-    /// 15000 of 16000 tries in a solve, of which 3 improved.
+    /// the moves that have just failed: on one model 15000 of 16000 tries
+    /// in a solve, of which 3 improved.
     fn flip_search(&mut self, max_solves: i32) -> i32 {
         const PARTNERS: usize = 3;
         const SCREEN_BATCH: usize = 32;
@@ -879,17 +879,17 @@ impl Heur {
         //   promise), where a neighbourhood costs an LP of some hundred
         //   iterations and a dive. Often the gap closes there.
         // - Some decision column is reached by no neighbourhood from the
-        //   others (lns::has_isolated_cols). (On a gas-boiler dispatch
-        //   model the root dive rounds a boiler off wherever the LP fires
-        //   it below half its low fire, which leaves unserved load at a
-        //   high price. Each boiler's flip improves on its own: 18 LP
-        //   solves took a 13% gap to under 1%, where the neighbourhoods had
-        //   used up the budget on the banks' switches around boilers left
-        //   off.)
+        //   others (lns::has_isolated_cols). (On a model with such columns
+        //   the root dive rounds each of them down wherever the LP has it
+        //   under one half, at a high cost elsewhere. Each one's flip
+        //   improves on its own: 18 LP solves took a 13% gap to under 1%,
+        //   where the neighbourhoods had used up the budget on the switches
+        //   around them.)
         // With a wider gap and no such column the neighbourhoods go first:
         // the flips first reach a good incumbent sooner there but the
-        // target gap no sooner, and on the hardest dispatch model they
-        // leave a slightly worse incumbent at the time limit (dispatch.md).
+        // target gap no sooner, and on the hardest model of the private
+        // suite they leave a slightly worse incumbent at the time limit
+        // (docs/graph-lns.md).
         let gap = m.upper_bound() - m.lower_bound();
         let target = m.upper_bound() - m.optimality_limit();
         if !deep && m.opts.mip_graph_lns_flip_first && gap > target && (gap <= 3.0 * target || s.h.isolated_cols) {

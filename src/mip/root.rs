@@ -268,7 +268,7 @@ impl MipData {
             // syncs its most recent task first)
             // (not in a concurrent LNS helper, nor in a main solver that has
             // one: there the detection runs on another thread, and an early
-            // sync waiting for it cost the dispatch models at two threads)
+            // sync waiting for it cost time at two threads)
             let early_symmetries = o.mip_symmetry_static_orbitopes
                 && !self.concurrent_helper
                 && (crate::parallel::num_threads() == 1 || !self.ob(op::USE_CONCURRENT_HELPER));
@@ -322,9 +322,9 @@ impl MipData {
                     // the root LP's effort, however it was solved: a dual
                     // simplex from the slack basis brings each basic
                     // structural column in, at 1.0-2.4 iterations per
-                    // column on the dispatch and MIPLIB LPs (the IPX
+                    // column on the private suite's and MIPLIB LPs (the IPX
                     // crossover basis has as many basic columns, within 3%
-                    // on the dispatch LPs). Always when IPX alone solved
+                    // on the former). Always when IPX alone solved
                     // it (mip_root_lp_ipx): its count is the crossover's
                     // few iterations, and the graph LNS budgets that scale
                     // with it would be too small to search at all
@@ -653,9 +653,9 @@ impl MipData {
                 // Crestline: the gap is still over three target gaps and a
                 // helper is at its deep search: the main solver joins it.
                 // (With one thread a gap this wide sends the time to the
-                // sub-MIP heuristics and the tree instead. On a gas-boiler
-                // dispatch model those found nothing in 180 s, and every
-                // incumbent came from the helper's one thread.)
+                // sub-MIP heuristics and the tree instead. On one model
+                // those found nothing in 180 s, and every incumbent came
+                // from the helper's one thread.)
                 let wide = |m: &MipData| {
                     let sc = m.sc();
                     m.own_lns().is_some()
@@ -694,7 +694,7 @@ impl MipData {
                     // helper), further rounds as long as one (with what a
                     // helper found meanwhile) closes 1% of it. What follows,
                     // the sub-MIP heuristics and the tree, found nothing on
-                    // the dispatch ticks: with a helper they took half of
+                    // the hard models of the private suite: with a helper they took half of
                     // the main solver's time in the slow runs, while the
                     // incumbents came from the deep searches
                     let mut ub = lns_upper_bound;

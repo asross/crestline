@@ -19,12 +19,17 @@ alternately with both binaries, minimum CPU cycles of 3 runs
 "Same path" compares iteration and node counts, objective and status.
 C++: Release, clang (thin LTO). Crestline: `cargo build --release --bin
 crest` (rustc 1.98, LTO). The cases are MIPLIB instances, Netlib LPs from
-HiGHS's check/instances, LP relaxations of MIPLIB instances, and power
-system dispatch MILPs.
+HiGHS's check/instances, LP relaxations of MIPLIB instances, and models
+of the private suite: scheduling MIPs of one application (25 at first,
+36 by late 2026; time-indexed on/off decisions coupled by chains of
+equalities over time, some with ramp limits), run at `mip_rel_gap =
+0.01` with a 180 s limit and 16 seeds on x86-64 and arm64 runners
+(docs/benchmarks.md). Its models are not public and are not named here:
+P1, P2, ... stand for the same model throughout this file.
 
 ## Current: crest against the C++ `highs` app (2026-10-10)
 
-Every case same path. After the dispatch pass below (`perf.py --reps 3`,
+Every case same path. After the pass on the private suite below (`perf.py --reps 3`,
 M1; the earlier 2026-10-10 figure, all 0.761, is within noise of this).
 
 | Group | Geomean crest / C++ cycles |
@@ -46,8 +51,8 @@ cycles (flate2/miniz_oxide inflate is no slower than zlib through zstr).
 | MIP | neos17 | 9.97 | 8.53 | 0.856 | yes |
 | MIP | nu25-pr12 | 3.87 | 2.86 | 0.740 | yes |
 | MIP | neos-911970 | 11.60 | 9.90 | 0.854 | yes |
-| MIP | dispatch lambda_080458 | 15.99 | 13.71 | 0.857 | yes |
-| MIP | dispatch 3c1b60d6 root | 28.76 | 26.46 | 0.920 | yes |
+| MIP | P4 | 15.99 | 13.71 | 0.857 | yes |
+| MIP | P3 root | 28.76 | 26.46 | 0.920 | yes |
 | LP dual simplex | 25fv47 | 0.39 | 0.31 | 0.788 | yes |
 | LP primal simplex | 25fv47 | 0.59 | 0.57 | 0.969 | yes |
 | LP dual simplex | 80bau3b | 0.31 | 0.22 | 0.718 | yes |
@@ -61,19 +66,19 @@ cycles (flate2/miniz_oxide inflate is no slower than zlib through zstr).
 | LP dual simplex | air04 relaxation | 2.09 | 1.47 | 0.702 | yes |
 | LP dual simplex | rail507 relaxation | 10.80 | 6.07 | 0.562 | yes |
 | LP dual simplex | co-100 relaxation | 8.03 | 5.04 | 0.627 | yes |
-| LP dual simplex | dispatch 3c1b60d6 relaxation | 26.48 | 22.27 | 0.841 | yes |
+| LP dual simplex | P3 relaxation | 26.48 | 22.27 | 0.841 | yes |
 | IPM (IPX) | greenbea | 1.20 | 1.23 | 1.023 | yes |
 | IPM (IPX) | 80bau3b | 0.76 | 0.72 | 0.947 | yes |
 | IPM (IPX) | rail507 relaxation | 10.31 | 9.66 | 0.936 | yes |
 | IPM (IPX) | co-100 relaxation | 15.78 | 13.07 | 0.828 | yes |
-| IPM (IPX) | dispatch 3c1b60d6 relaxation | 5.40 | 4.99 | 0.923 | yes |
+| IPM (IPX) | P3 relaxation | 5.40 | 4.99 | 0.923 | yes |
 | PDLP | 25fv47 | 1.57 | 1.41 | 0.894 | yes |
 | PDLP | greenbea | 5.44 | 5.41 | 0.995 | yes |
 | PDLP | stair | 0.55 | 0.53 | 0.964 | yes |
 | Read model (time_limit 0) | co-100.mps.gz | 4.26 | 1.40 | 0.328 | yes |
 | Read model (time_limit 0) | neos-5052403-cygnet.mps.gz | 7.83 | 2.84 | 0.363 | yes |
-| Read model (time_limit 0) | dispatch 3c1b60d6.mps | 0.45 | 0.19 | 0.416 | yes |
-| Read model (time_limit 0) | dispatch 3c1b60d6.lp | 0.71 | 0.31 | 0.436 | yes |
+| Read model (time_limit 0) | P3.mps | 0.45 | 0.19 | 0.416 | yes |
+| Read model (time_limit 0) | P3.lp | 0.71 | 0.31 | 0.436 | yes |
 
 ## Where the gains come from
 
@@ -89,12 +94,12 @@ All of these keep every result bit for bit.
 
   | model | .mps | .lp | raw | pretty | glpsol raw | glpsol pretty | basis |
   |---|---|---|---|---|---|---|---|
-  | dispatch 080458 | 0.386 -> 0.220 | 0.506 -> 0.251 | 0.458 -> 0.095 | 0.464 -> 0.189 | 0.220 -> 0.061 | 0.514 -> 0.190 | 0.112 -> 0.050 |
+  | P4 | 0.386 -> 0.220 | 0.506 -> 0.251 | 0.458 -> 0.095 | 0.464 -> 0.189 | 0.220 -> 0.061 | 0.514 -> 0.190 | 0.112 -> 0.050 |
   | blp-ar98 | 0.255 -> 0.181 | 0.327 -> 0.230 | 0.086 -> 0.015 | 0.081 -> 0.032 | 0.031 -> 0.013 | 0.107 -> 0.069 | 0.011 -> 0.004 |
   | 30n20b8 | 0.147 -> 0.078 | 0.202 -> 0.125 | 0.063 -> 0.007 | 0.097 -> 0.024 | 0.017 -> 0.006 | 0.131 -> 0.025 | 0.016 -> 0.004 |
   | 80bau3b | 0.029 -> 0.022 | 0.048 -> 0.018 | 0.050 -> 0.008 | 0.054 -> 0.013 | 0.042 -> 0.008 | 0.085 -> 0.016 | 0.007 -> 0.003 |
 
-- **Simplex kernels.** A pass guided by a sampling profiler on the dispatch
+- **Simplex kernels.** A pass guided by a sampling profiler on the private-suite
   LPs, keeping the same floating-point operations in the same order
   (shares of profile samples of one run each):
 
@@ -106,8 +111,8 @@ All of these keep every result bit for bit.
   | CHUZR tests merit before infeasibility (one branch) | `choose_normal` 4.59% -> 3.75% |
   | CHUZC candidate test by a select | `choose_possible` 3.54% -> 2.48% |
   | dense PRICE result indexed by selects | `price_by_row_with_switch` 2.16% -> 1.25% |
-  | per-thread pool for work vector buffers | hard dispatch tick: madvise 5.01% -> 1.92% |
-  | `factorSolveError` keeps its work arrays | hard dispatch tick: madvise 1.67% -> 0.25% |
+  | per-thread pool for work vector buffers | P3: madvise 5.01% -> 1.92% |
+  | `factorSolveError` keeps its work arrays | P3: madvise 1.67% -> 0.25% |
 
   Together: LP dual simplex 0.924, MIP 0.976, all cases 0.971 of the cycles
   before the pass.
@@ -116,11 +121,11 @@ All of these keep every result bit for bit.
   touches one cache line; no allocation per jump value; the scores of a
   constraint's old and new left-hand side computed once. Cycles of
   feasibility jump alone (with minus without, node limit 1, min of 3), C++
-  -> Crestline: neos17 2.19G -> 1.42G, dispatch 080458 2.22G -> 1.70G,
+  -> Crestline: neos17 2.19G -> 1.42G, P4 2.22G -> 1.70G,
   gen-ip002 0.38G -> 0.22G, gen-ip054 0.20G -> 0.13G, markshare2 0.26G ->
   0.19G.
 - **Presolve.** Probing and enumeration without per-probe call overhead:
-  presolve on dispatch 080458 takes 0.915 of the cycles it did before.
+  presolve on P4 takes 0.915 of the cycles it did before.
 - **One LTO unit.** Everything from the model reader to the MIP search is
   one optimized Rust program, with no calls across a language boundary.
 
@@ -131,20 +136,20 @@ hyper-sparse DFS; skipping zero terms of `update_dual`'s objective sum;
 selects in the DSE weight update; a vectorized dense path for
 `update_primal`; IPX maxvolume `find_largest` by vectorized passes.
 
-## Dispatch MILPs: profile and pass of 2026-10-10
+## The private suite: profile and pass of 2026-10-10
 
 Profiled with macOS `sample` (1 ms, call trees) and a SIGPROF PC sampler,
 single thread, `mip_rel_gap = 0.01`:
 
-- **LP-heavy solves** (the root LP of `dm_full_pert_s1_ramp`, the
-  3c1b60d6 root): the factor solves are about half of the time (dense
+- **LP-heavy solves** (the root LP of P5, the
+  P3 root): the factor solves are about half of the time (dense
   FTRAN by U 15-21%, hyper-sparse solves 11-21%, BTRAN 8-13%, FTRAN by L
   5-7%), then `Dual::iterate`'s own work, PRICE by row and `re_index`.
-  The factors are very sparse (on `hard_10-03`, L and U hold about 12k
+  The factors are very sparse (on P1, L and U hold about 12k
   and 46k entries for 27k rows) while B^-1 is dense, so the solves are
   bound by loads, branch mispredictions (columns of 1-3 entries) and the
   pivot division, not by arithmetic.
-- **LNS-heavy solves** (`hard_10-03_1340` to the end of its root, 53 s):
+- **LNS-heavy solves** (P1 to the end of its root, 53 s):
   80% is graph LNS, which solves about 6950 LPs of about 6 simplex
   iterations each. `Dual::iterate` is only 21% of the time: the rest of an
   LP solve is fixed cost, spread over many O(rows + columns) passes:
@@ -157,12 +162,12 @@ Landed (same paths; cycles, minimum of 3, crest after / before):
 
 | Change | Effect |
 |---|---|
-| matrix scaling and unscaling by vector, without per-entry branches | `hard_10-03` root 0.991 (with the next) |
+| matrix scaling and unscaling by vector, without per-entry branches | P1 root 0.991 (with the next) |
 | KKT check after a MIP LP: columns and rows in separate loops | (above) |
-| `vector_hash`: whole 8-byte pairs without a `memmove` call per pair | `hard_10-03` root 0.985 in all; other dispatch cases 0.99-1.00 |
+| `vector_hash`: whole 8-byte pairs without a `memmove` call per pair | P1 root 0.985 in all; other private-suite cases 0.99-1.00 |
 | x86-64-v3 build (README) | 0.965 of the generic x86_64 build on native x86_64 (below) |
 
-Tried and rejected on the dispatch models:
+Tried and rejected on the private suite:
 - Pivot divisions as multiplications when the pivot is a power of two
   (exact, so the same results): +1-3% cycles, the extra branch costs more
   than the division saves.
@@ -171,17 +176,17 @@ Tried and rejected on the dispatch models:
   bounds-check-free work bound set-up: no measurable change.
 - (Path-changing) hyper-sparse/dense switch thresholds of the factor
   solves scaled by 0.5, 0.7 or 1.5: LP relaxation cycles over the 25
-  dispatch LPs 1.010, 1.042, 0.979 (noise: the iteration counts move by
+  private-suite LPs 1.010, 1.042, 0.979 (noise: the iteration counts move by
   as much).
 - (Path-changing) IPX with crossover for the first root LP on one thread
   (`mip_lp_solver = ipm`, or a sequential version of the IPX race): 2.7
-  times faster LP on `dm_full_pert_s1_ramp`, but the MIP is slower (1.31
+  times faster LP on P5, but the MIP is slower (1.31
   geometric mean on the suite, seed 0): the quick LNS search budgets its LP
   iterations by the root LP's simplex iterations, which IPX does not have,
   and the crossover vertex suits the dives less. With that budget
   decoupled, see `mip_root_lp_ipx` below: still slower overall.
-- Concurrent FTRANs per dual iteration: not tried; on Lambda the second
-  vCPU, when there is one, runs the LNS helper thread.
+- Concurrent FTRANs per dual iteration: not tried; a second core, when
+  there is one, runs the LNS helper thread.
 
 ### `mip_root_lp_devex` (off by default; replaced 2026-10-17 by `mip_root_lp_devex_density`, below)
 
@@ -189,26 +194,26 @@ Devex pricing instead of dual steepest edge for the first root LP of the
 MIP (not sub-MIPs), when it has at least 20000 rows (the MIP's LPs get no
 exact DSE weights above that size anyway) and IPX does not race it (one
 thread). Later solves use DSE. Dense B^-1 makes the DSE FTRAN expensive:
-the LP relaxations of the 25 dispatch models take 0.724 of the cycles
-(0.32-0.52 on the ramp models, 1.37 on lambda_080458).
+the LP relaxations of the 25 models of the private suite take 0.724 of the cycles
+(0.32-0.52 on the ramp-limited models, 1.37 on P4).
 
 Evidence (16 seeds, one thread, `mip_rel_gap = 0.01`, 180 s; instructions,
 geometric mean over seeds of on / off, every run of both solved):
 
 | Instances | Effect |
 |---|---|
-| 12 dispatch models of at least 20000 rows that solve | 0.854 (lambda_080458 0.67, wind185 0.71, ramp models 0.73-0.95, 3c1b60d6 0.91; worst: randsoc_noramp 1.12) |
-| 11 smaller dispatch models | unaffected (with Devex there: 0.97 overall, small_windlull 1.63) |
-| `hard_10-03_1340`, `diverse_10-01_0052` (time limit) | mean gap 1.592% -> 1.632% and 1.198% -> 1.231% (mean incumbent 0.04% and 0.03% worse; seed spread is 0.2%) |
+| 12 models of the private suite of at least 20000 rows that solve | 0.854 (P4 0.67, P8 0.71, ramp-limited models 0.73-0.95, P3 0.91; worst: one model 1.12) |
+| 11 smaller models of the private suite | unaffected (with Devex there: 0.97 overall, P7 1.63) |
+| P1, P2 (time limit) | mean gap 1.592% -> 1.632% and 1.198% -> 1.231% (mean incumbent 0.04% and 0.03% worse; seed spread is 0.2%) |
 | MIPLIB with >= 20000 rows, 2 seeds, 300 s | ex9 even; app1-2, sorrell3, supportcase10 even; rd-rplusc-21 finds no solution in 300 s on either seed (off: 99.94% gap on both; its root LP is 700 iterations, so the change is B&B chaos) |
 
-The suite of solved dispatch models gets clearly faster, but the
-time-limited ticks, where the incumbent at 180 s matters, do not, and one
+The suite of solved models of the private suite gets clearly faster, but the
+time-limited models, where the incumbent at 180 s matters, do not, and one
 MIPLIB instance lost its incumbent: so the option stays off.
 
 ## Graph LNS LP re-solves: pass of 2026-10-10 (later)
 
-Profile (macOS `sample`, `hard_10-03_1340` to the end of its root, single
+Profile (macOS `sample`, P1 to the end of its root, single
 thread, `mip_rel_gap = 0.01`): graph LNS solves 6951 LPs of about 8.5
 dual simplex iterations each. Per solve, on average, the dual values were
 computed 2.75 times, the primal values 1.86 times, the factor's solve
@@ -229,12 +234,12 @@ perf.py case):
 | Fix: the run that reads a model passed the Highs object to a clock callback that takes the engine (undefined behaviour, exposed by a layout change) | |
 
 Instructions retired, deterministic (crest after / before, the cases of
-the earlier pass): `hard_10-03` root 0.902, `diverse_10-01` root 0.903,
-3c1b60d6 0.971, 080458 0.997, `pert_s1_ramp` 0.989, `randsoc_ramp` 0.989,
-`medium_pert_s1_ramp` 0.974, `full_prices_noramp` 0.914; geometric mean
+the earlier pass): P1 root 0.902, P2 root 0.903,
+P3 0.971, P4 0.997, P5 0.989, P10 0.989,
+P6 0.974, another full-size model 0.914; geometric mean
 0.954. Cycles (minimum of 3 alternating runs, on a heavily shared machine,
 so indicative): 0.959, 0.893, 0.964, 0.997, 0.946, 0.949, 0.977, 0.912;
-geometric mean 0.949. Profile shares on the hard tick's root, before ->
+geometric mean 0.949. Profile shares on P3's root, before ->
 after: graph LNS 86% -> 83%, rebuild 17.9% -> 16.8%, cleanup 4.3% ->
 4.2%, scaling 3.7% -> 1.8% (mostly the compare), solve-error checks 6.0%
 -> 4.8%, the dual iterations themselves 16% -> 21%.
@@ -249,9 +254,9 @@ Tried and rejected:
 Off, graph LNS's LP solves run the dual simplex without cost
 perturbation. First measured on a heavily oversubscribed machine with
 wall-clock limits (16 seeds): 0.888 of the instructions on the solved
-dispatch runs, but the time-limited ticks looked worse (mean gap at 180 s
-1.695% -> 1.745% on `hard_10-03_1340`, 1.381% -> 1.481% on
-`diverse_10-01_0052`), so it first stayed on. Measured again without the
+private-suite runs, but the time-limited models looked worse (mean gap at 180 s
+1.695% -> 1.745% on P1, 1.381% -> 1.481% on
+P2), so it first stayed on. Measured again without the
 load below: it is now off by default.
 
 ### `mip_root_lp_ipx` and `mip_root_lp_effort_from_basis` (off by default; 2026-10-10)
@@ -263,7 +268,7 @@ starts. From them:
 - quick graph LNS: at most `min(3 T + 1000, max(T + 1000, 20000))` LP
   iterations, `T = total_lp_iterations` (so "one root LP's worth" on
   large models; the 20000 floor binds below `T` = 19000, i.e. on every
-  dispatch model but the ramp ones and lambda_080458);
+  model of the private suite but the ramp-limited ones and P4);
 - deep graph LNS (root and tree rounds): `10 T + 5000`, where `T` now
   also holds the cut loop and the quick search;
 - the flip search: `max(5000, firstrootlpiters)` per call; the LPs of
@@ -275,7 +280,7 @@ starts. From them:
 
 An LP solved by IPX counts no simplex iterations at all (crossover's
 pushes are not counted), so with IPX at the root `T` is about 0: the
-quick search gets 1000 LP iterations (on `dm_full_pert_s1_ramp`: 0
+quick search gets 1000 LP iterations (on P5: 0
 neighbourhoods instead of the 2 dives that reach 1%), the flip and
 rounding LPs their floors. On two threads, when IPX wins the race, the
 dual simplex's iterations up to the interruption are counted instead,
@@ -286,10 +291,10 @@ as `E` = twice the basic structural columns of its optimal basis, however
 it was solved (`firstrootlpiters = E`, and the graph LNS budgets add
 `E` less the counted iterations to `total_lp_iterations`). A dual simplex
 from the slack basis must bring each of these columns in: it took 1.0-2.4
-iterations per column on the 25 dispatch LPs (1.0-1.2 without ramp
-limits, 1.4-2.4 with them and on the lambda ticks) and 1.0-1.4 on MIPLIB
+iterations per column on the 25 private-suite LPs (1.0-1.2 without ramp
+limits, 1.4-2.4 with them and on P3, P4 and P8) and 1.0-1.4 on MIPLIB
 (supportcase10: 12). The IPX crossover basis has as many basic columns
-(within 3% on every dispatch LP), so the count does not depend on the
+(within 3% on every private-suite LP), so the count does not depend on the
 method. Rejected: rows (simplex iterations per row range from 0.006 on
 sorrell3 to 1.1), time or work measures (not deterministic), crossover or
 IPM iterations (no fixed relation to simplex work).
@@ -297,14 +302,14 @@ IPM iterations (no fixed relation to simplex work).
 crossover alone (no race), when it has at least 10000 nonzeros.
 
 **Root LP alone** (instructions to the end of the first root LP, presolve
-included, deterministic): IPX / dual simplex is 0.39-0.58 on the lambda
-ticks, 0.40-0.75 on the full ramp models, 0.53-0.68 on four small models,
-but 2.2-2.8 on every noramp model of medium or full size, 1.8 on
-`hard_10-03`, 1.0 on `diverse_10-01`; MIPLIB: supportcase10 0.11,
+included, deterministic): IPX / dual simplex is 0.39-0.58 on P3, P4
+and P8, 0.40-0.75 on the full ramp-limited models, 0.53-0.68 on four small models,
+but 2.2-2.8 on every model without ramp limits of medium or full size, 1.8 on
+P1, 1.0 on P2; MIPLIB: supportcase10 0.11,
 app1-2 2.1, sorrell3 1.35, rd-rplusc-21 1.12. IPX wins exactly where the
 dual simplex takes many iterations per basic column (dense B^-1).
 
-**MIP** (dispatch suite, `mip_rel_gap = 0.01`, 180 s, seeds 0-15 at one
+**MIP** (private suite, `mip_rel_gap = 0.01`, 180 s, seeds 0-15 at one
 thread, 0-7 at two; instructions, geometric mean of per-instance
 geometric means over runs all three configs solve, against (a) default;
 the M1 was heavily oversubscribed by other benchmarks (load 20-190), so
@@ -315,20 +320,20 @@ alike):
 | | (b) + effort from basis | (c) + IPX root + effort from basis |
 |---|---|---|
 | one thread, 23 models | 1.004 | 1.184 |
-| ... lambda_080458, wind185, 3c1b60d6 | 0.997, 0.997, 0.999 | 0.444, 0.822, 0.927 |
-| ... full / medium ramp models | 1.000-1.087 | 0.704-0.937 |
-| ... 14 noramp models | 0.995-1.012 | 1.087-2.315 (all worse) |
+| ... P4, P8, P3 | 0.997, 0.997, 0.999 | 0.444, 0.822, 0.927 |
+| ... full / medium ramp-limited models | 1.000-1.087 | 0.704-0.937 |
+| ... 14 models without ramp limits | 0.995-1.012 | 1.087-2.315 (all worse) |
 | one thread, runs solved (of 400) | 347 (a: 344) | 342 |
-| one thread, `hard_10-03` / `diverse_10-01` mean gap | 2.09% / 1.48% (a: 1.99% / 1.86%) | 1.97% / 1.60% |
+| one thread, P1 / P2 mean gap | 2.09% / 1.48% (a: 1.99% / 1.86%) | 1.97% / 1.60% |
 | two threads, 23 models (instructions of both threads) | 1.020 | 1.032 (wall 1.288: (a) races IPX on the second core) |
 | two threads, runs solved (of 200) | 184 (a: 184) | 184 |
-| two threads, `hard_10-03` / `diverse_10-01` mean gap | 1.60% / 1.26% (a: 1.62% / 1.22%) | 1.63% / 1.22% |
+| two threads, P1 / P2 mean gap | 1.60% / 1.26% (a: 1.62% / 1.22%) | 1.63% / 1.22% |
 
 In a two-seed pilot, IPX at the root without the new budget was 1.72:
 decoupling the budget recovers most of the collapse (1.72 -> 1.24 on
 those seeds), and (b) shows the budget itself is neutral with a simplex
 root. What remains is the root LP: IPX is 2-3 times dearer than the dual
-simplex on the noramp models.
+simplex on the models without ramp limits.
 
 MIPLIB (ex9, app1-2, sorrell3, supportcase10, rd-rplusc-21; 2 seeds,
 300 s, `mip_rel_gap = 0.01`, one thread): (b) changes nothing; with (c)
@@ -337,7 +342,7 @@ seed 0), the others end as (a) (ex9 optimal, sorrell3 317%, app1-2 and
 rd-rplusc-21 without a solution in all three).
 
 **Choosing the method adaptively** (one thread): no feature known before
-the solve separates the two groups (nonzeros per row: 3.4 noramp, 3.6-3.9
+the solve separates the two groups (nonzeros per row: 3.4 without ramp limits, 3.6-3.9
 for both winners and losers). A probe does better: after a quarter of the
 rows' worth of dual simplex iterations, the basic structural columns per
 iteration are 0.79-0.86 on the models where IPX wins and 0.86-0.98 where
@@ -350,7 +355,7 @@ iteration at 3000 iterations). Not implemented; on two threads the race
 already makes this choice.
 
 So both options stay off: IPX for the root LP wins only on the ramp and
-lambda models, and loses more on the rest. The effort-from-basis budget
+P3, P4 and P8, and loses more on the rest. The effort-from-basis budget
 is the right one to pair with any future non-simplex root (or the race),
 and is neutral otherwise.
 
@@ -358,25 +363,25 @@ and is neutral otherwise.
 
 ### Method: paired runs without machine load
 
-- **Runners:** `.github/workflows/bench-dispatch.yml` (run by hand, or by
-  pushing a branch `bench-dispatch/*` whose commit sets the defaults)
-  runs `bench/dispatch.py` on GitHub's x86_64 (`ubuntu-24.04`, crest
+- **Runners:** `.github/workflows/bench-paired.yml` (run by hand, or by
+  pushing a branch `bench-paired/*` whose commit sets the defaults)
+  runs `bench/paired.py` on GitHub's x86_64 (`ubuntu-24.04`, crest
   built for x86-64-v3; AMD EPYC 7763/9V45/9V74, Xeon 8573C) and arm64
   (`ubuntu-24.04-arm`, Neoverse N2) runners, one solve at a time per
   4-vCPU runner, seeds x instances sharded over 16 runners per
   architecture. Every (instance, seed) runs all configs back to back on the
   same runner, so the pairs share a CPU model. The instances come from the
-  private repo asross/crestline-dispatch (deploy key); the public logs
-  print only names, objectives, gaps and times.
+  private repository (a deploy key); the public logs
+  print only hashed names, objectives, gaps and times.
 - **Locally:** `CRESTLINE_INSTR_CLOCK=R` (macOS) makes the run timers count
   R * 1e9 retired instructions as a second (`proc_pid_rusage`), so a
   one-thread run stops at the same point however loaded the machine is
-  (two runs of `hard_10-03_1340` to a 20 s limit gave the same log line for
+  (two runs of P1 to a 20 s limit gave the same log line for
   line). R = 5 here: 900G instructions for a 180 s limit.
   Chosen over process CPU time, which still varies with cache and
   memory contention and with P/E core placement, and over a work-unit
   counter, which would need effort estimates everywhere time is read.
-- **Measures** (`bench/dispatch.py report`): per instance, differences
+- **Measures** (`bench/paired.py report`): per instance, differences
   B - A paired by seed with 95% t-intervals; time as the geometric mean
   of B/A over runs that both solve (interval in log space); gap at the
   limit; and the mean primal gap over the limit (Berthold's primal
@@ -386,37 +391,37 @@ and is neutral otherwise.
 
 ### Results (one thread, `mip_rel_gap = 0.01`, 180 s)
 
-Off against on, paired by seed: 16 seeds, the hard ticks 32 on the
+Off against on, paired by seed: 16 seeds, the hardest models 32 on the
 runners (16 on the M1).
 
 | | x86_64 runners | arm64 runners | M1, instruction clock |
 |---|---|---|---|
-| solved dispatch models (23), time, geometric mean of per-instance ratios | 0.920 | 0.896 | 0.888 (instructions, earlier 16-seed run) |
+| solved models of the private suite (23), time, geometric mean of per-instance ratios | 0.920 | 0.896 | 0.888 (instructions, earlier 16-seed run) |
 | instances whose interval lies below 1 / above 1 | 7 / 0 | 6 / 0 | |
-| largest point estimate | small_pert_s1_noramp 1.046 [0.83, 1.32] | small_windlull 1.043 [0.93, 1.17] | |
+| largest point estimate | a small model 1.046 [0.83, 1.32] | P7 1.043 [0.93, 1.17] | |
 | runs solved in 180 s (of 400) | 372 -> 371 | 369 -> 371 | |
-| `hard_10-03_1340`: gap at 180 s (on: 1.47%, 1.54%, 1.60%) | -0.051 +- 0.046 | -0.072 +- 0.108 | +0.005 +- 0.105 |
-| `hard_10-03_1340`: mean primal gap (%) | -0.146 +- 0.103 | -0.344 +- 0.437 | -0.375 +- 0.189 |
-| `diverse_10-01_0052`: gap at 180 s (on: 1.16%, 1.15%, 1.22%) | -0.014 +- 0.042 | +0.010 +- 0.039 | -0.013 +- 0.058 |
-| `diverse_10-01_0052`: mean primal gap (%) | -0.010 +- 0.083 | -0.030 +- 0.050 | -0.123 +- 0.120 |
+| P1: gap at 180 s (on: 1.47%, 1.54%, 1.60%) | -0.051 +- 0.046 | -0.072 +- 0.108 | +0.005 +- 0.105 |
+| P1: mean primal gap (%) | -0.146 +- 0.103 | -0.344 +- 0.437 | -0.375 +- 0.189 |
+| P2: gap at 180 s (on: 1.16%, 1.15%, 1.22%) | -0.014 +- 0.042 | +0.010 +- 0.039 | -0.013 +- 0.058 |
+| P2: mean primal gap (%) | -0.010 +- 0.083 | -0.030 +- 0.050 | -0.123 +- 0.120 |
 
-The ramp models gain most (`dm_full_randsoc_ramp` 0.747 and 0.691,
-`dm_medium_pert_s1_ramp` 0.761 and 0.670, `dm_full_pert_s2_ramp` 0.837
+The ramp-limited models gain most (P10 0.747 and 0.691,
+P6 0.761 and 0.670, P9 0.837
 and 0.805), and their mean primal gap drops by 0.8-2.7 points (the
 incumbent comes earlier).
 
-Two threads (16 seeds, `hard_10-03` and `diverse_10-01`): gap at 180 s
+Two threads (16 seeds, P1 and P2): gap at 180 s
 +0.016 +- 0.040 and -0.047 +- 0.052 (x86_64), -0.021 +- 0.036 and
-+0.012 +- 0.023 (arm64); mean primal gap on `hard_10-03` -0.117 +- 0.180
-and -0.248 +- 0.120; `diverse_10-01` solved in 7 -> 13 and 13 -> 11 of 16
++0.012 +- 0.023 (arm64); mean primal gap on P1 -0.117 +- 0.180
+and -0.248 +- 0.120; P2 solved in 7 -> 13 and 13 -> 11 of 16
 runs. The 23 solved models on two threads (16 seeds, every run solves):
 0.921 (x86_64) and 0.932 (arm64), 7 and 8 intervals below 1; one above,
-`dm_small_randsoc_noramp` 1.053 [1.023, 1.084] on x86_64 (a 0.35 s
+P19 1.053 [1.023, 1.084] on x86_64 (a 0.35 s
 solve; 0.967 on arm64; one in 92 intervals at 95% is what chance gives);
-`dm_full_randsoc_ramp` 0.559 and 0.563.
+P10 0.559 and 0.563.
 
 So the earlier "worse at the time limit" was the machine's load: without
-it the hard ticks are even or slightly better, and no solved model
+it the hardest models are even or slightly better, and no solved model
 regresses.
 
 ### Why (instrumented, M1, instruction clock, 4 seeds)
@@ -425,30 +430,30 @@ Per graph LNS LP solve, on against off:
 
 | Model | dual simplex iterations | solves with a primal simplex clean-up | clean-up iterations per solve | iterations with a zero dual step |
 |---|---|---|---|---|
-| `dm_full_pert_s1_ramp` | 78.8 -> 56.4 | 35% -> 0 | 19.4 -> 0 | 20% -> 50% |
-| `dm_medium_pert_s1_ramp` | 40.0 -> 27.3 | 29% -> 9% (cost shifting) | 8.0 -> 0.4 | 13% -> 34% |
-| 3c1b60d6, small_windlull | 22.5 -> 21.9, 6.0 -> 4.7 | 0 | 0 | 0 |
-| `hard_10-03_1340` | 5.3 -> 6.0 | 0 | 0 | 0 |
-| `diverse_10-01_0052` | 9.9 -> 10.0 | 0 | 0 | 0 |
+| P5 | 78.8 -> 56.4 | 35% -> 0 | 19.4 -> 0 | 20% -> 50% |
+| P6 | 40.0 -> 27.3 | 29% -> 9% (cost shifting) | 8.0 -> 0.4 | 13% -> 34% |
+| P3, P7 | 22.5 -> 21.9, 6.0 -> 4.7 | 0 | 0 | 0 |
+| P1 | 5.3 -> 6.0 | 0 | 0 | 0 |
+| P2 | 9.9 -> 10.0 | 0 | 0 | 0 |
 
-- **The saving** is on the ramp models: removing the perturbation at the
+- **The saving** is on the ramp-limited models: removing the perturbation at the
   end leaves dual infeasibilities in a third of the LNS LPs, which the
   primal simplex then cleans up (a quarter of graph LNS's iterations), and
   the perturbed solves themselves take more dual iterations. Without
   perturbation half the iterations are dual degenerate, but there are
   fewer of them.
-- **The hard ticks:** (a) no degenerate stalls: zero-step iterations stay
+- **The hardest models:** (a) no degenerate stalls: zero-step iterations stay
   under 1%, and the longest LNS LP is about as long either way (1946 and
   1991 iterations). (b) no loss of diversity: neighbourhoods improving the
-  incumbent 11/31 -> 15/39 per run on `hard_10-03`, 14/50 -> 14/44 on
-  `diverse_10-01`; graph LNS incumbents 45.5 -> 46.0 and 70.5 -> 57.8
+  incumbent 11/31 -> 15/39 per run on P1, 14/50 -> 14/44 on
+  P2; graph LNS incumbents 45.5 -> 46.0 and 70.5 -> 57.8
   (the final gaps even). The LPs cost the same, the paths diverge: (c)
   noise, which the earlier wall-clock measurement on a loaded machine
   mistook for a loss.
 
 Tried (as options, runners, 16 seeds) and rejected:
 - A smaller perturbation (multiplier 0.05 in graph LNS): 0.976 (x86_64)
-  and 0.948 (arm64), with `dm_medium_prices_noramp` 1.119 [1.034, 1.212]
+  and 0.948 (arm64), with one medium-size model 1.119 [1.034, 1.212]
   on x86_64: less than off and one regression.
 - Keeping the perturbation but no primal clean-up
   (`max_dual_simplex_cleanup_level = 0` in graph LNS): the solve's
@@ -463,9 +468,9 @@ against the C++ app.
 ## Rust-specific pass of 2026-10-10 (bounds checks, PGO, FMA on x86-64-v3)
 
 **Profile** (SIGPROF PC sampler, line level, M1): on the LP relaxation
-of 3c1b60d6, `HFactor::ftran` (the dense U solve inlined) 25%,
+of P3, `HFactor::ftran` (the dense U solve inlined) 25%,
 `solve_hyper` 18%, `Dual::iterate` 7%, `ftran_l` 7%, PRICE by row 7%,
-`update_primal` 4%, `btran` 4%; on lambda_080458 (MIP) the same kernels
+`update_primal` 4%, `btran` 4%; on P4 (MIP) the same kernels
 plus feasibility jump 5%; on air05, cut separation is about 40%
 (`aggr_add_row` 9%, `cmir_efficacy` 9%, gfk splay 4%).
 
@@ -483,7 +488,7 @@ hyper-sparse DFS, five checks per entry in `update_primal`, three in
 
 | Change | Effect |
 |---|---|
-| `solve_hyper`: per-position arrays sliced to the number of positions (one check covers all), the column end kept in a register during the DFS | instructions: 3c1b60d6 relaxation 0.975, lambda_080458 0.970, dm_full_prices root 0.973 |
+| `solve_hyper`: per-position arrays sliced to the number of positions (one check covers all), the column end kept in a register during the DFS | instructions: P3 relaxation 0.975, P4 0.970, another full-size root 0.973 |
 | `update_primal` dense/sparse loops over arrays sliced to num_row (no checks in the dense loop); `choose_normal`, `update_dual` sliced to a common length | a further 0.979-0.997 (a closure version was outlined by LLVM: +1-3% instructions; a macro keeps it inline) |
 | `HighsLpAggregator::addRow` by the `double` overload of `add`, as the C++ (the `CDouble` one added a zero low part per entry) | air05 at 200 nodes 0.973 instructions |
 | `bench/pgo_build.sh`: profile-guided build, trained on check/instances LPs (simplex, IPX, PDLP) and MIPs plus given models | see below |
@@ -491,20 +496,20 @@ hyper-sparse DFS, five checks per entry in `update_primal`, three in
 The branch against main (same paths), CPU time: GitHub x86_64
 (x86-64-v3) all 0.990 (MIP 0.989, LP dual 0.987, IPX 0.977), arm64
 0.996; M1 cycles 0.998 (the M1 was shared with load 100+ for this pass,
-so its cycle counts are about ±3%; instructions on the dispatch cases
+so its cycle counts are about ±3%; instructions on the private-suite cases
 0.956-0.974). The bounds-check work is worth about 1% in time: the checks
 were predictable.
 
 PGO against the plain build (same paths): GitHub x86_64 all 0.978 (MIP
 0.977, LP dual 0.979, IPX 0.972, read 0.826, PDLP 1.055), arm64 0.972
-(MIP 0.973, LP dual 0.963); M1 0.964 and the fixed-work dispatch cases
+(MIP 0.973, LP dual 0.963); M1 0.964 and the fixed-work private-suite cases
 0.991. It needs training runs at build time, so it is a script, not the
 default build.
 
 ### Numerics: fused multiply-adds on x86-64-v3 (kept, default)
 
 `mul_add_c` now fuses wherever the CPU has FMA: aarch64 as before, and
-x86_64 built with `target-feature=fma` (x86-64-v3, the Lambda build). The
+x86_64 built with `target-feature=fma` (x86-64-v3). The
 x86-64-v3 build then takes the arm64 build's paths: under Rosetta it
 matches the clang arm64 C++ app on all of quick_check (73 solves, 166
 command lines). `no_fma` keeps HiGHS's unfused arithmetic (gcc
@@ -514,13 +519,13 @@ perf.py, GitHub): x86_64 all 0.966 (MIP 0.950, LP 1.00, IPX 0.858), arm64
 0.956 (MIP 0.936, LP 0.99, IPX 0.840); the LP cases are even, the MIP
 and IPX gains are path differences as much as arithmetic.
 
-**Dispatch suite, paired on GitHub runners** (`bench-dispatch.yml`,
+**The private suite suite, paired on GitHub runners** (`bench-paired.yml`,
 main against this branch, 25 models x 16 seeds, 1 thread, 180 s, run
 38082983814): arm64 (same paths) time 0.984 over the 24 instances solved
 by both, every gap the same, primal integral slightly lower everywhere;
 x86_64 (x86-64-v3, other paths through FMA) time 0.967, solved 371 -> 370
-runs (`diverse_10-01` 3 -> 2 of 16 within the limit), end gaps within
-noise (hard_10-03 +0.016 ± 0.078%, primal integral -0.196 ± 0.141%).
+runs (P2 3 -> 2 of 16 within the limit), end gaps within
+noise (P1 +0.016 ± 0.078%, primal integral -0.196 ± 0.141%).
 
 ### Numerics: tried and rejected
 
@@ -529,21 +534,21 @@ noise (hard_10-03 +0.016 ± 0.078%, primal integral -0.196 ± 0.141%).
   products, which need the unfused rounding; and on arm64 it adds only
   ~140 fused sites to the ~1640 the port has already.
 - Reciprocal U pivots (multiply by stored 1/pivot instead of dividing in
-  the U solves): the 25 dispatch LP relaxations took 1.014 of the cycles,
+  the U solves): the 25 private-suite LP relaxations took 1.014 of the cycles,
   0.998 per simplex iteration: the division is not on the critical path.
 - Partial sums (four or two accumulators) in `HVec::norm2` (DSE weights),
   `update_dual`'s objective change, `cmir_efficacy`'s violation and norm
   and column-wise PRICE: LP relaxations 0.976 cycles (0.990 per
-  iteration); dispatch suite (16 seeds, 180 s, instructions, geometric mean
+  iteration); private suite (16 seeds, 180 s, instructions, geometric mean
   over seeds then instances) 0.975 over 23 solved models, 363 against 362
-  optimal runs, but `hard_10-03` mean gap 1.771% -> 1.883% and MIPLIB (8
+  optimal runs, but P1 mean gap 1.771% -> 1.883% and MIPLIB (8
   instances, 4 seeds) 1.22, air05 1.25 over 6 seeds (5 slower; not the
   cmir or PRICE sums). Not a robust gain, so not kept.
 
 ## Graph LNS on unit commitment models: deep search gate, pool move, crossover (2026-10-16)
 
 From the MIPFEAS study (MIPLIB 2017 unit commitment models; see
-[dispatch.md](./dispatch.md)): one thread keeps `uccase9` at its
+[graph-lns.md](./graph-lns.md)): one thread keeps `uccase9` at its
 randomized-rounding incumbent (63% gap, optimum 10993) for 180 s, while
 two threads reach about 12-17k, because the helper runs the deep graph LNS
 search ungated. Cause: the quick search's root dive used its whole LP
@@ -552,8 +557,8 @@ neighbourhood, did not improve, and the deep search's gate ("quick search
 improved and gap within 3x the target") stayed shut; the root cut loop
 then takes the rest of the time.
 
-Options off by default. Method as above (`bench-dispatch`
-workflow: 25 dispatch models plus `miplib/*.mps.gz` = uccase9, unitcal_7,
+Options off by default. Method as above (`bench-paired`
+workflow: 25 models of the private suite plus `miplib/*.mps.gz` = uccase9, unitcal_7,
 irish-electricity, buildingenergy; 16 seeds, `mip_rel_gap = 0.01`,
 180 s, paired on one runner; local MIPLIB checks with the instruction
 clock, R = 8).
@@ -568,16 +573,16 @@ search runs before the root cuts on one root LP's worth of LP iterations
 |---|---|---|
 | solved runs (of 464) | 389 -> 389 | 387 -> 387 |
 | time, geometric mean over solved models | 1.000 | 0.999 |
-| `dm_full_pert_s1_ramp` (the dive cap) | 0.982 [0.971, 0.994] | 0.978 [0.967, 0.989] |
-| `hard_10-03` gap at 180 s / mean primal gap | +0.003 +- 0.006 / -0.011 +- 0.046 | -0.005 +- 0.011 / -0.010 +- 0.020 |
-| `diverse_10-01` gap / mean primal gap | -0.001 +- 0.003 / -0.000 +- 0.022 | +0.001 +- 0.001 / +0.008 +- 0.019 |
+| P5 (the dive cap) | 0.982 [0.971, 0.994] | 0.978 [0.967, 0.989] |
+| P1 gap at 180 s / mean primal gap | +0.003 +- 0.006 / -0.011 +- 0.046 | -0.005 +- 0.011 / -0.010 +- 0.020 |
+| P2 gap / mean primal gap | -0.001 +- 0.003 / -0.000 +- 0.022 | +0.001 +- 0.001 / +0.008 +- 0.019 |
 | uccase9 gap (base 41.0% / 47.5%) | -5.2 +- 8.6 | -6.3 +- 8.7 |
 | uccase9 mean primal gap | -6.1 +- 7.0 | -6.0 +- 6.9 |
 | irish-electricity, buildingenergy, unitcal_7 | even | even |
 
-On the dispatch models it fires on no seed (the quick search improves
+On the private suite it fires on no seed (the quick search improves
 there); the changes there come from the dive cap, which only shortens
-dives (`dm_full_pert_s1_ramp` 2% faster). On uccase9 it fires on 2-3 of
+dives (P5 2% faster). On uccase9 it fires on 2-3 of
 16 seeds, and those go from about 30000 to 13149-13303 (the optimum is
 10993); on the others the quick search improved the incumbent a little,
 so the gate stays shut and the run ends at 27000-32500 as before (or near
@@ -599,7 +604,7 @@ columns where one of the last four incumbents disagrees with the current
 one (a random part if more than the move's size, grown by breadth-first
 search if fewer), fix the rest, search by branch and bound. Against base,
 16 seeds, x86_64 / arm64: one thread, solved 390 -> 389 / 387 -> 385,
-time 1.016 / 1.009, `diverse_10-01` solved 4 -> 2 / 3 -> 1, `hard_10-03`
+time 1.016 / 1.009, P2 solved 4 -> 2 / 3 -> 1, P1
 gap +0.009 +- 0.059 / +0.026 +- 0.058; two threads, time 1.002 / 1.005,
 uccase9 mean primal gap +1.3 / +1.0 points. The incumbents of a run differ
 in a few columns (each came from a neighbourhood of the last), so the move
@@ -607,15 +612,15 @@ is mostly a BFS grown from recent changes, which the BFS moves already
 cover.
 
 **`mip_concurrent_crossover`** (existing, two threads): 1.116 (x86_64) and
-1.126 (arm64) of the time on the solved models (3c1b60d6 1.58 and 1.59,
-`dm_small_pert_s1_*` 1.45-1.57), gaps at the limit even, uccase9's mean
+1.126 (arm64) of the time on the solved models (P3 1.58 and 1.59,
+P11 and its sibling 1.45-1.57), gaps at the limit even, uccase9's mean
 primal gap +1.7 and +2.9 points. Stays off.
 
 ## MIP infrastructure outside the simplex: pass of 2026-10-16
 
 **Profile** (macOS `sample` call trees and a SIGPROF PC sampler with the
 link register, line tables; single thread, MIPLIB set at 30 s each, plus
-dispatch ticks). Shares are of each instance's samples:
+models of the private suite). Shares are of each instance's samples:
 
 - *Symmetry detection* (neos-4722843-widden: 65 s of a 120 s run, 39%
   of the profile): partition refinement probed a hash table of vertex
@@ -636,13 +641,13 @@ dispatch ticks). Shares are of each instance's samples:
   cover step (s100 10%); probing on co-100 is 76% of its 3.1T-instruction
   presolve, mostly activity updates in `do_change_bound` (57%) after
   clique implications.
-- *Domain propagation* on the dispatch ticks: 11% of the hard tick's
+- *Domain propagation* on the models of the private suite: 11% of P3's
   root, nearly all in graph LNS's flip-search screening, spread over the
   activity update and row propagation loops (no single hot line).
 
 **Landed** (every change keeps the paths: quick_check, presolved models
 compared byte for byte on 68 instances, MIP logs at 100 nodes on 64
-MIPLIB and dispatch instances; instructions retired, M1, base = main):
+MIPLIB and models of the private suite; instructions retired, M1, base = main):
 
 | Change | Effect |
 |---|---|
@@ -657,18 +662,18 @@ MIPLIB and dispatch instances; instructions retired, M1, base = main):
 
 Totals against main (instructions, same paths): widden 0.729, rail507
 0.845, air04 0.927, qap10 0.797, neos-957323 0.933, cvs16r128-89 0.794,
-neos-933966 0.857, the hard dispatch tick's root 0.981; s100 presolve
-0.577; the dispatch models at 100 nodes 0.99-1.00 (they are LP-bound).
+neos-933966 0.857, P3's root 0.981; s100 presolve
+0.577; the private suite at 100 nodes 0.99-1.00 (they are LP-bound).
 
-**Runners** (`bench-dispatch`, main against this branch, 25 dispatch
+**Runners** (`bench-paired`, main against this branch, 25 private-suite
 models x 4 seeds, one thread, 180 s; run 38997905789): every one of the
 100 pairs per architecture ends with the same primal and dual bound
 (x86_64 built for x86-64-v3, so the FMA two-product is checked there
-too; the pairs that differ in node count are the time-limited hard ticks,
+too; the pairs that differ in node count are the time-limited hardest models,
 which get further in 180 s). Time, geometric mean over the solved models:
-x86_64 0.994, arm64 0.992; largest ratio lambda_080458 1.013
+x86_64 0.994, arm64 0.992; largest ratio P4 1.013
 [1.003, 1.024] on x86_64 (0.990 on arm64), smallest
-dm_small_randsoc_noramp 0.958 / 0.970. The dispatch models are LP-bound,
+P19 0.958 / 0.970. The private suite are LP-bound,
 so the gains are small there.
 
 **Tried and rejected:**
@@ -714,10 +719,10 @@ or have no symmetry found (fhnw-binpack4-48) are not helped by this pass.
 After the factor elimination loop (PR #62), the other hot loops of the LP
 relaxations and presolve, profiled with a SIGPROF PC sampler (line tables,
 inlined frames by `atos -i`). Same arithmetic: on 31 runs (LP relaxations,
-check/instances LPs, MIPLIB and dispatch MIPs at 200 nodes, one thread and
+check/instances LPs, MIPLIB and models of the private suite at 200 nodes, one thread and
 two with `mip_deterministic`) every log is the same less time-triggered
 progress lines, and the presolved models of all 58 local MIPLIB and 36
-dispatch instances are identical byte for byte. Instructions retired (M1),
+models of the private suite are identical byte for byte. Instructions retired (M1),
 each change against the build before it unless noted:
 
 | Loop | Change | Instructions |
@@ -729,14 +734,14 @@ each change against the build before it unless noted:
 | kernel 2.4.5 / 2.5: mark reset and clear | unchecked over the pivot column's rows | 0.894 / 0.952 |
 | kernel 2.4.6: `col_fix_max` | four independent maxima (the running `std::max` from 0 of the abs values is the largest non-NaN one in any order) | cod105 0.946 |
 | dense row-wise PRICE | result scatter unchecked (`unsafe fn`: column indices below num_col) | rail507 0.954, dano3_3 0.962 |
-| U solve (FTRAN/BTRAN) | result index push unchecked | tick_1015 0.990, dano3_3 0.995 |
+| U solve (FTRAN/BTRAN) | result index push unchecked | P15 0.990, dano3_3 0.995 |
 | dominated columns | row cache kept across unlinks (the stored entries less the zeroed ones); entries `checkDomination` rejects both ways by integrality and signature only count its checks (and are skipped once `allow_pred_bnd_analysis` is off); row and column facts hoisted, reread after a reduction | nw04: the pass 154G -> 68.6G (0.445); presolve 0.696 (cycles 0.705) |
 
 (Kernel rows other than the delete search are left-one-out ratios, the
 inverse of the build without that change, on cod105's relaxation.)
 Totals against main: cod105 relaxation 0.721, MIP (200 nodes) 0.875 (2
 threads 0.843), rail507 relaxation 0.955 (MIP 0.962), dano3_3 0.949,
-ns1208400 0.970, the dispatch cases 0.957-1.006; nw04 presolve 0.696.
+ns1208400 0.970, the private-suite cases 0.957-1.006; nw04 presolve 0.696.
 
 Tried and dropped (no change in instructions): unchecked accesses in the
 FT update's FTRAN/BTRAN loops (0.999), forcing the kernel helpers inline.
@@ -753,7 +758,7 @@ tbfp-network, took 297.7 s on main (limit 300). LP set solved 232 -> 233,
 instances (AMD and Intel mixed between the two runs), so their ratios
 (MIPLIB 1.008, LP 0.950; 17 and 87 same-CPU pairs: 1.027 and 0.996) and
 their solved counts (94 -> 93, 232 -> 230, all changes at the time limit)
-are noise. Dispatch at 2 threads (run 41764868292, 36 models x 16 seeds,
+are noise. The private suite at 2 threads (run 41764868292, 36 models x 16 seeds,
 paired): arm64 time 0.997, solved 552 -> 556; x64 0.987, solved 555 -> 556;
 time to 1% and primal integral even on both.
 
@@ -821,7 +826,7 @@ M1 (loaded, one run each, IPX with crossover, cycles / instructions of
 this branch against main, every case same path): rail507 1.001 / 0.986,
 co-100 0.997 / 0.976, neos-1354092 0.886 / 0.870, neos-960392 0.894 /
 0.879, app1-2 0.984 / 0.843, unitcal_7 0.904 / 0.897, neos-3988577-wolgan
-0.921 / 0.880, chromaticindex512-7 0.633 / 0.750, dispatch 3c1b60d6
+0.921 / 0.880, chromaticindex512-7 0.633 / 0.750, P3
 relaxation 0.971 / 0.946.
 
 GitHub runners, bench-std LP suite with `solver=ipm`, this branch against
@@ -829,12 +834,12 @@ main built the same way (x86-64-v3 on x64), all of an instance on one
 runner (run 38999699398): shifted time 0.976 (x64) and 0.981 (arm64) over
 the 242 and 241 LPs both solve, every result the same; chromaticindex1024-7
 and 512-7 0.64-0.71, neos-631710 0.69 (x64) and 0.81 (arm64),
-gfd-schedulen180f7d50m30k18 0.84, nothing slower than 1.03. Dispatch
+gfd-schedulen180f7d50m30k18 0.84, nothing slower than 1.03. The private suite
 suite on two threads (IPX in the root race; one thread never calls it),
 main against this branch, 8 seeds, 180 s (run 39001306423): time 1.003
 (arm64) and 1.008 (x64) over 24 instances, solved 190 -> 190 and 189 ->
-190, gaps and primal integrals within noise (the ramp and lambda models,
-where IPX wins the race, 0.95-0.99; dm_small_windlull 1.28 [0.91, 1.79]
+190, gaps and primal integrals within noise (the ramp-limited models and P3, P4, P8,
+where IPX wins the race, 0.95-0.99; P7 1.28 [0.91, 1.79]
 and 1.08 [0.93, 1.27] is the race's timing noise).
 
 Against the release afterwards (run 39003533706, same suite): x64 sgm
@@ -862,9 +867,9 @@ x64 it ends without a status on 3 LPs and at the limit on 1 that IPX
 solves (IPX times out on 1 that HiPO solves). A port would be HiPO's 11600
 lines of C++ plus METIS (8200 lines of C), AMD (3600) and RCM (900), about
 twice IPX (13000), and dense kernels that need tuning per arch. On the
-dispatch models IPX runs only in the two-thread root race (crossover
-included, which HiPO uses too), and wins it only on the lambda and ramp
-models (see `mip_root_lp_ipx` above); one-thread solves never call it. So
+models of the private suite IPX runs only in the two-thread root race (crossover
+included, which HiPO uses too), and wins it only on P3, P4, P8 and the
+ramp-limited models (see `mip_root_lp_ipx` above); one-thread solves never call it. So
 a faster IPM would move a fraction of the root LP on a few models, and
 HiPO is not faster on average.
 
@@ -877,19 +882,19 @@ First root LP of the MIP, after presolve; time per phase by timers in
 
 | Model | rows | iterations | per row | us / iteration | DSE FTRAN | FTRAN (col + BFRT) | CHUZR + BTRAN | PRICE + CHUZC | rebuild |
 |---|---|---|---|---|---|---|---|---|---|
-| full noramp (8 models) | 19.6-29.0k | 10.0-16.4k | 0.51-0.57 | 30-54 | 28-39% | 15-19% | 9-10% | 4% | 12-17% |
-| medium noramp (4) | 13.5-15.6k | 6.5-8.1k | 0.47-0.52 | 21-31 | 24-31% | 14-19% | 9% | 3-4% | 15-16% |
-| `hard_10-03` / `diverse_10-01` | 25.2k / 25.4k | 12.0k / 12.5k | 0.48 / 0.49 | 67 / 138 | 33% / 31% | 29% / 31% | 9% / 13% | 4% / 6% | 9% / 6% |
-| full ramp (3) | 26.1-29.0k | 21.3-28.7k | 0.73-1.10 | 195-281 | 29-34% | 11-13% | 15-18% | 13-14% | 6-7% |
-| medium ramp | 14.2k | 10.1k | 0.71 | 108 | 32% | 15% | 17% | 13% | 8% |
-| lambda ticks (3) | 23.4-23.6k | 14.5-18.3k | 0.62-0.78 | 145-221 | 26-34% | 19-25% | 16-21% | 10-17% | 6-8% |
+| full size, no ramp limits (8 models) | 19.6-29.0k | 10.0-16.4k | 0.51-0.57 | 30-54 | 28-39% | 15-19% | 9-10% | 4% | 12-17% |
+| medium size, no ramp limits (4) | 13.5-15.6k | 6.5-8.1k | 0.47-0.52 | 21-31 | 24-31% | 14-19% | 9% | 3-4% | 15-16% |
+| P1 / P2 | 25.2k / 25.4k | 12.0k / 12.5k | 0.48 / 0.49 | 67 / 138 | 33% / 31% | 29% / 31% | 9% / 13% | 4% / 6% | 9% / 6% |
+| full size, ramp limits (3) | 26.1-29.0k | 21.3-28.7k | 0.73-1.10 | 195-281 | 29-34% | 11-13% | 15-18% | 13-14% | 6-7% |
+| medium size, ramp limits | 14.2k | 10.1k | 0.71 | 108 | 32% | 15% | 17% | 13% | 8% |
+| P3, P4, P8 | 23.4-23.6k | 14.5-18.3k | 0.62-0.78 | 145-221 | 26-34% | 19-25% | 16-21% | 10-17% | 6-8% |
 | small (5) | 5.2-6.1k | 3.3-6.3k | 0.55-1.19 | 23-72 | 25-27% | 17-22% | 10-20% | 5-11% | 10-14% |
 | buildingenergy | 268k | 228.5k | 0.85 | 565 | 2% (HiGHS's costly-DSE switch to Devex fires) | 53% | 22% | 4% | 12% |
 
 **Iterations or their cost?** Iterations per row vary 2x across the
 suite (0.47-1.19), the cost of an iteration 10x (21-281 us at similar
-sizes): the slow models are slow per iteration. On the ramp and lambda
-models B^-1 is dense (running densities: DSE FTRAN results 0.7-0.85 at
+sizes): the slow models are slow per iteration. On the ramp-limited models and
+P3, P4, P8, B^-1 is dense (running densities: DSE FTRAN results 0.7-0.85 at
 their peak, BTRAN 0.2-0.26, PRICE 0.4), so every solve is a dense one, and
 the DSE FTRAN, on a dense row of B^-1, is the dearest (29-34%).
 buildingenergy is the other way round: sparse results (column 2%, row
@@ -903,14 +908,14 @@ on cheaper iterations.
 
 | Change | Paths | Root LP effect (M1) |
 |---|---|---|
-| `mip_root_lp_devex_density` = 0.7: the first root LP (no basis, not a sub-MIP, at least 10000 rows; also the dual simplex of the two-thread race) switches from DSE to Devex once the running density of its DSE FTRAN results passes 0.7; later LPs start DSE from the weights it leaves (as after HiGHS's own costly-DSE switch) | changed where it fires: the ramp and lambda models of the suite (on MIPLIB, 33 of 47 instances at seed 0 without the row gate) | instructions to the end of the root LP: full ramp 0.49-0.60, lambda 0.52-0.70, medium ramp 0.73; the rest unchanged |
-| Hyper-sparse triangular solves (FTRAN/BTRAN, L and U) in the dense solve's order: the positions to visit are a bitmap, scanned a word at a time, set from the nonzeros as they are found; same results as the dense solve bit for bit (checked against a dense reference on every solve of several dispatch, MIPLIB and Netlib models). Cargo feature `hyper_dfs` keeps HiGHS's depth-first search, for the CI oracle | changed (sums in another order than HiGHS's DFS) | buildingenergy 128.4 s -> 89.3 s (U solve per call 91 -> 31 us); dispatch root LP time 0.92 geometric mean (0.74-1.14; iteration counts move by -16% to +14%) |
-| CHUZR visits only the slots (rows, or list positions) that may hold a primal infeasibility: a bitmap superset kept by the primal updates and the infeasibility list, cleared as the scan finds rows feasible, rebuilt when unsure (rebuild, dense column, taboo rows) | same (iteration counts identical on all 25 dispatch root LPs; asserted against the plain scan) | buildingenergy 72.3 s -> 69.8 s, 0.92 instructions; dispatch even |
+| `mip_root_lp_devex_density` = 0.7: the first root LP (no basis, not a sub-MIP, at least 10000 rows; also the dual simplex of the two-thread race) switches from DSE to Devex once the running density of its DSE FTRAN results passes 0.7; later LPs start DSE from the weights it leaves (as after HiGHS's own costly-DSE switch) | changed where it fires: the ramp-limited models and P3, P4, P8 of the suite (on MIPLIB, 33 of 47 instances at seed 0 without the row gate) | instructions to the end of the root LP: full ramp 0.49-0.60, lambda 0.52-0.70, medium ramp 0.73; the rest unchanged |
+| Hyper-sparse triangular solves (FTRAN/BTRAN, L and U) in the dense solve's order: the positions to visit are a bitmap, scanned a word at a time, set from the nonzeros as they are found; same results as the dense solve bit for bit (checked against a dense reference on every solve of several private-suite, MIPLIB and Netlib models). Cargo feature `hyper_dfs` keeps HiGHS's depth-first search, for the CI oracle | changed (sums in another order than HiGHS's DFS) | buildingenergy 128.4 s -> 89.3 s (U solve per call 91 -> 31 us); private-suite root LP time 0.92 geometric mean (0.74-1.14; iteration counts move by -16% to +14%) |
+| CHUZR visits only the slots (rows, or list positions) that may hold a primal infeasibility: a bitmap superset kept by the primal updates and the infeasibility list, cleared as the scan finds rows feasible, rebuilt when unsure (rebuild, dense column, taboo rows) | same (iteration counts identical on all 25 private-suite root LPs; asserted against the plain scan) | buildingenergy 72.3 s -> 69.8 s, 0.92 instructions; private-suite even |
 
 buildingenergy's root LP on the M1: 128.4 s (main) -> 69.8 s, 565 -> 277
 us per iteration (252k iterations instead of 229k: another path).
 
-### MIP: paired runs (`bench-dispatch`, 16 seeds, 180 s, `mip_rel_gap = 0.01`, 25 dispatch models + 4 MIPLIB UC models)
+### MIP: paired runs (`bench-paired`, 16 seeds, 180 s, `mip_rel_gap = 0.01`, 25 models of the private suite + 4 MIPLIB UC models)
 
 Time: geometric mean of per-instance ratios over runs both solve; pg:
 mean primal gap over the limit (percentage points). Head = this branch;
@@ -923,15 +928,15 @@ their headinf behaviour, below).
 |---|---|---|
 | head / main, solved models | 0.914 | 0.884 |
 | solved runs (of 464) | 390 -> 390 | 387 -> 388 |
-| full ramp / lambda models | 0.74-0.91 / 0.62-0.84 | 0.75-0.91 / 0.68-0.84 |
-| full noramp models | 0.84-0.94 | 0.84-0.93 |
-| `hard_10-03` gap / pg | -0.009 +- 0.089 / -0.25 +- 0.15 | +0.007 +- 0.083 / -0.30 +- 0.12 |
-| `diverse_10-01` gap / pg | -0.05 +- 0.06 / -0.27 +- 0.16 | -0.06 +- 0.07 / -0.27 +- 0.17 |
+| full ramp / P3, P4 and P8 | 0.74-0.91 / 0.62-0.84 | 0.75-0.91 / 0.68-0.84 |
+| full models without ramp limits | 0.84-0.94 | 0.84-0.93 |
+| P1 gap / pg | -0.009 +- 0.089 / -0.25 +- 0.15 | +0.007 +- 0.083 / -0.30 +- 0.12 |
+| P2 gap / pg | -0.05 +- 0.06 / -0.27 +- 0.16 | -0.06 +- 0.07 / -0.27 +- 0.17 |
 | buildingenergy gap / pg | -0.25 +- 0.17 / -22.1 +- 4.5 | -0.29 +- 0.19 / -23.2 +- 3.9 |
 | irish-electricity, uccase9 | even | even |
 | unitcal_7 (solved, 0.37% gap) | 1.37 [0.99, 1.89] (bitmap path; switch 1.00) | 1.35 [0.97, 1.86] |
-| switch alone (head / headinf), ramp + lambda | 0.75-1.02 | 0.80-1.04 |
-| switch alone, small models (before the gate) | 0.91-1.22 (windlull 1.22 [0.93, 1.60]) | 0.90-1.22 |
+| switch alone (head / headinf), ramp-limited + P3, P4, P8 | 0.75-1.02 | 0.80-1.04 |
+| switch alone, small models (before the gate) | 0.91-1.22 (P7 1.22 [0.93, 1.60]) | 0.90-1.22 |
 
 | two threads | x86_64 | arm64 |
 |---|---|---|
@@ -940,7 +945,7 @@ their headinf behaviour, below).
 | switch alone (head / headinf) | 1.007 | 1.004 |
 | buildingenergy gap / pg | -0.30 +- 0.19 / -26.2 +- 4.6 | -0.43 +- 0.19 / -25.3 +- 4.6 |
 | unitcal_7 | 0.875 [0.82, 0.93] | 0.796 [0.65, 0.97] |
-| worst model | `diverse_10-01` 0.96 (8 solved) | `diverse_10-01` 1.31 [0.88, 1.96] (12 solved) |
+| worst model | P2 0.96 (8 solved) | P2 1.31 [0.88, 1.96] (12 solved) |
 
 buildingenergy: the root LP ends 40-60 s earlier on the runners, so its
 first incumbent comes earlier (mean primal gap down by 22-26 points) and
@@ -951,20 +956,20 @@ head (switch at 0.3) against main, 0.988 geometric mean over the 19
 solved by both, solved 20 -> 21; the switch at 0.7 (no row gate) against
 off: 0.976, solved 21 -> 22 (ns1208400 lost, cod105 and neos-933966
 gained). perf.py (main -> head, M1 cycles): LP dual simplex 0.972, primal
-0.933, IPX 0.992, MIP 0.952, all 0.971; dispatch 3c1b60d6 relaxation
+0.933, IPX 0.992, MIP 0.952, all 0.971; P3 relaxation
 0.666.
 
-### Confirmation on the final head (10000-row gate), and diverse_10-01
+### Confirmation on the final head (10000-row gate), and P2
 
 16 seeds, all 29 models, head against main: one thread 0.915 (x86_64) and
-0.882 (arm64), solved 387 -> 387 and 387 -> 388, dm_small_windlull 0.99 /
+0.882 (arm64), solved 387 -> 387 and 387 -> 388, P7 0.99 /
 0.97 (the gate); two threads 0.939 and 0.929, solved 396 -> 395 and 398 ->
-395. The two-thread drop is diverse_10-01 (12 -> 10, 14 -> 11 solved at 16
+395. The two-thread drop is P2 (12 -> 10, 14 -> 11 solved at 16
 seeds), so it was rerun at 32 seeds with the parts separated: A = main,
 B = the switch alone (HiGHS's DFS order, `hyper_dfs`), C = the dense-order
 solves alone (`mip_root_lp_devex_density = inf`), D = both (the default).
 
-| 32 seeds | | diverse solved | diverse gap (B-A) | diverse pg | hard_10-03 pg |
+| 32 seeds | | P2 solved | P2 gap (B-A) | P2 pg | P1 pg |
 |---|---|---|---|---|---|
 | one thread, x86_64 | B / C / D | 7 / 8 / 9 (A: 7) | +0.00 / -0.05 / -0.06 +- 0.05 | -0.03 / -0.28 / -0.28 | -0.01 / -0.34 / -0.33 |
 | one thread, arm64 | B / C / D | 4 / 7 / 8 (A: 4) | -0.00 / -0.05 / -0.06 +- 0.05 | +0.02 / -0.24 / -0.23 | -0.03 / -0.38 / -0.35 |
@@ -972,8 +977,8 @@ solves alone (`mip_root_lp_devex_density = inf`), D = both (the default).
 | two threads, arm64 | B / C / D | 24 / 26 / 24 (A: 18) | -0.00 / -0.01 / +0.01 +- 0.02 | +0.02 / -0.09 / -0.10 | +0.04 / -0.35 / -0.35 |
 
 So the 16-seed drop was path luck; the dense-order solves are what improve
-the two hard ticks (their LNS LPs), the switch does not fire on them.
-Cost per hyper-sparse solve on diverse (1 thread, 60 s, instruction
+the two hardest models (their LNS LPs), the switch does not fire on them.
+Cost per hyper-sparse solve on P2 (1 thread, 60 s, instruction
 clock): bitmap 0.34 / 3.6 / 26 us against DFS 0.40 / 4.6 / 40 us for
 results of under 16 / under 256 / more nonzeros, so the O(rows/64) scan of
 the bitmap does not cost on its many tiny solves. unitcal_7 (MIPLIB) one
@@ -981,17 +986,17 @@ thread 1.35-1.39 [0.98, 1.92] (solve order; B&B path), two threads 0.79-0.81.
 
 ### Tried and rejected
 
-- Switching at density 0.3: fired on 19 of 25 dispatch models, including
-  every full noramp model, `hard_10-03`, `diverse_10-01`, irish-electricity
+- Switching at density 0.3: fired on 19 of 25 models of the private suite, including
+  every full-size model without ramp limits, P1, P2, irish-electricity
   and uccase9 (late in the solve, where DSE costs little): one thread,
-  switch alone, `dm_full_pert_s2_noramp` 1.15-1.17 [1.03, 1.33],
-  `dm_small_windlull` 1.39-1.40, irish-electricity primal gap +9.5-10.3
-  points, uccase9 gap +21 +- 14 (arm64), `diverse_10-01` solved 4 -> 1.
+  switch alone, one full-size model 1.15-1.17 [1.03, 1.33],
+  P7 1.39-1.40, irish-electricity primal gap +9.5-10.3
+  points, uccase9 gap +21 +- 14 (arm64), P2 solved 4 -> 1.
   The density at which each model first passes 0.2-0.6 put 0.7 between
-  the noramp models (peak 0.18-0.48) and the ramp and lambda models
+  the models without ramp limits (peak 0.18-0.48) and the ramp-limited models and P3, P4, P8
   (0.73-0.85).
 - Devex from the start of the root LP (`mip_root_lp_devex`, removed):
-  root LP instructions 0.42-1.10 (`hard_10-03` 1.10); after it the cut
+  root LP instructions 0.42-1.10 (P1 1.10); after it the cut
   loop's near-optimal re-solves run Devex too (no DSE weights). The switch
   keeps DSE where it is cheap and leaves weights for the later solves.
 - Packing U's start, end, pivot index and pivot value into one record per
@@ -1003,7 +1008,7 @@ thread 1.35-1.39 [0.98, 1.92] (solve order; B&B path), two threads 0.79-0.81.
 - Not tried: a faster factorization kernel (12% on buildingenergy), a
   second thread for PRICE or concurrent FTRANs (on two threads the second
   core races IPX on this LP and then runs the LNS helper), crash bases and
-  dispatch-specific presolve (the slow models are slow per iteration, not
+  presolve specific to the private suite (the slow models are slow per iteration, not
   by iteration count).
 
 ## Cut-based conflict analysis: tried and removed (2026-10-18)
@@ -1037,7 +1042,7 @@ shift 10 s; ratios over the instances both solve, 95% t-interval):
 | arm64 | 95 -> 93 | 143.6 / 143.1 | 0.998 [0.953, 1.045] (89) | 0.937 [0.805, 1.092] |
 | x64 | 96 -> 96 | 141.5 / 141.3 | 1.000 [0.956, 1.046] (91) | 0.939 [0.808, 1.090] |
 
-**Dispatch** (`bench-dispatch`, 25 models, 16 seeds, 180 s, gap 0.01,
+**The private suite** (`bench-paired`, 25 models, 16 seeds, 180 s, gap 0.01,
 geometric mean of the per-model time ratios on/off over the 24 models
 with solved pairs):
 
@@ -1046,16 +1051,16 @@ with solved pairs):
 | 1 | 0.991 | 0.986 | 373 -> 373; 373 -> 373 |
 | 2 | 1.003 | 0.992 | 381 -> 383; 378 -> 381 |
 
-No model improved beyond its interval. The hard tick at one thread
+No model improved beyond its interval. P3 at one thread
 0.919 [0.845, 1.001] (arm64), 0.920 [0.844, 1.002] (x64); none at two
-threads (0.998, 1.009). `hard_10-03` end gap -0.03 +- 0.10 (one thread),
--0.03 +- 0.06 (two): no effect. Regressions: `dm_full_randsoc_ramp`, one
+threads (0.998, 1.009). P1 end gap -0.03 +- 0.10 (one thread),
+-0.03 +- 0.06 (two): no effect. Regressions: P10, one
 thread, primal integral +0.10 +- 0.06 (arm64) and +0.115 +- 0.06 (x64)
-of 4.2; `dm_full_pert_s2_ramp`, two threads, end gap +0.026 +- 0.024 and
+of 4.2; P9, two threads, end gap +0.026 +- 0.024 and
 primal integral +0.073 +- 0.054 (arm64); the small models +0.5-1% time.
 
-Why nothing for dispatch: the dispatch models search almost no tree.
-`hard_10-03` processes 2 nodes in 90 s and the hard tick 1, so conflict
+Why nothing for the private suite: its models search almost no tree.
+P1 processes 2 nodes in 90 s and P3 1, so conflict
 analysis of the main search hardly runs; their bound is the root's, not
 the tree's (bound-limited means root-bound-limited here). What changed
 came from sub-MIPs (graph LNS, RINS), where it only moved paths. On
@@ -1136,7 +1141,7 @@ incompatible with root fixings). Sorting the columns of a submatrix of
 the orbitope is a valid reduction on its own. To fix early, symmetry
 detection is finished after the first root LP (it was finished after the
 root cut loop), so its task is now spawned after the analytic centre's.
-In a main solver with a concurrent LNS helper (the dispatch models: more
+In a main solver with a concurrent LNS helper (the private suite: more
 than one thread and `mip_rel_gap >= 1e-3`) the detection runs on another
 thread and is finished where it was (after the root cut loop; syncing
 early would wait for it), and the triangle is fixed then. Off, crest is as HiGHS;
@@ -1165,21 +1170,21 @@ counts as the baseline and ran on other CPU models (the x64 runners mix
 EPYC 7763, 9V45, 9V74 and Xeon 6973P): load, not path; on arm64 those
 instances are even.
 
-bench-dispatch (16 seeds, 180 s; runs 39021754772 and 39021756191):
+bench-paired (16 seeds, 180 s; runs 39021754772 and 39021756191):
 one thread, solved 371 -> 371 on both arches, time 0.999 (arm64) and
-1.002 (x64), no interval above 1. The dispatch ticks have a full
-orbitope (1120 columns on dm_full_pert_s2_ramp) but no packing rows,
+1.002 (x64), no interval above 1. The models of the private suite have a full
+orbitope (1120 columns on P9) but no packing rows,
 so their one-thread paths do not change. Two threads with the early
 sync: solved 381 -> 382 / 377 -> 382, time 1.008 / 1.000, but
-dm_full_pert_s2_ramp 1.032 [1.022, 1.042] on x64 (primal integral +0.08
+P9 1.032 [1.022, 1.042] on x64 (primal integral +0.08
 points): the early sync waited for the detection running on the second
 core and changed which task the helper took. Since then the early sync
 is one-thread only (and never in the concurrent LNS helper), so
 two-thread runs schedule as main. Rerun after rebasing on main (run
 39094216794, two threads, 16 seeds): solved 379 -> 379 (arm64) and 377
--> 378 (x64), time 0.992 and 1.011, dm_full_pert_s2_ramp 1.008
-[1.000, 1.016] on both, the largest interval lambda wind185 1.015
-[1.005, 1.025] on x64; the dispatch orbitopes have no packing rows, so
+-> 378 (x64), time 0.992 and 1.011, P9 1.008
+[1.000, 1.016] on both, the largest interval P8 1.015
+[1.005, 1.025] on x64; the private-suite orbitopes have no packing rows, so
 these two-thread differences are scheduling noise.
 
 **Early sync at 2+ threads without a helper (2026-11-03).** Until then
@@ -1198,9 +1203,9 @@ changes (6 per arch) are those of the one-thread change: neos-933966
 nu25-pr12 faster; graph20-20-1rand slower (221 -> 264 s arm64, 184 s ->
 limit x64). The other x64 losses (neos-3004026-krka, neos-3216931-puriri)
 keep main's node counts on arm64 and ran on a slower EPYC 7763: CPU mix.
-bench-dispatch, 2 threads, 8 seeds, 180 s (run 41573822512): arm64 279 ->
+bench-paired, 2 threads, 8 seeds, 180 s (run 41573822512): arm64 279 ->
 279, time 1.004, t1 1.001 [0.996, 1.006]; x64 280 -> 276, time 1.009, t1
-0.996 [0.990, 1.002], all four lost on diverse_10-01_0052, which runs the
+0.996 [0.990, 1.002], all four lost on P2, which runs the
 same code (the helper is on) and is timing noise at 2 threads: rerun
 with an A/A control (run 41608660717, 16 seeds, x64) head vs main 13 ->
 12 solved, 1.043 [0.828, 1.314]; main vs main 13 -> 12, 1.154 [0.862,
@@ -1218,23 +1223,23 @@ on at the same commit).
 |---|---|---|---|
 | strong branching lookahead 8 (stop after 8 strong-branched candidates without a better score; arXiv:2312.07041) | 1.012 (1.011 without neos-2978193-inde); 23 -> 23; binkar10_1 35.6 -> 53.9 s, enlight_hard 11.1 -> 23.0, irp 25.6 -> 37.5 | not run | rejected: HiGHS's budget on strong branching iterations already bounds it, and stopping early loses the better candidates |
 | network implied integers in presolve (+-1 continuous columns, at most two per column, rows signed by union-find; arXiv:2504.07209) | 1.002 without neos-2978193-inde (93 -> 14 s with: all 20736 continuous columns become implied integer); 23 -> 23 | bench-std runs 39078267364 / 39078268540: x64 solved 90 -> 89, sgm 144.3 -> 146.4; arm64 91 -> 88, 145.5 -> 147.1; exp-1-500-5-5 2-3 s -> time limit, net12 and neos-3216931-puriri lose their solves, rmatr100-p10 2.5x; neos-2978193-inde 70-79 -> 12-13 s | rejected: implied integers change cut generation (c-MIR) and heuristics on network-flow models, and that costs more than it gains |
-| Gomory cut history in the branching score (weight 1e-4; arXiv:2306.06050) | 0.989 without neos-2978193-inde; 22 -> 22. Runners, miplib-easy (runs 39097406609 / 39097407930): solved 64 -> 65 on both arches, sgm 28.9 -> 25.3 s (x64) and 27.3 -> 25.1 s (arm64); dispatch screen (run 39113570874): time 1.000 (arm64), 1.003 (x64), no motivating tick worse | full MIPLIB (runs 39115313907 / 39115315327): x64 solved 92 -> 90, sgm 144.5 -> 145.1; arm64 92 -> 91, 146.1 -> 144.2; and a WRONG result on both arches: traininstance6 ends "optimal" at 28380 with dual bound 28379, beyond the known optimum 28290 (option off: 28290) | rejected: no gain over the full set; the wrong bound on traininstance6 is a latent bug in another component that this path exposes, to be shrunk with bench/mipdd.sh |
+| Gomory cut history in the branching score (weight 1e-4; arXiv:2306.06050) | 0.989 without neos-2978193-inde; 22 -> 22. Runners, miplib-easy (runs 39097406609 / 39097407930): solved 64 -> 65 on both arches, sgm 28.9 -> 25.3 s (x64) and 27.3 -> 25.1 s (arm64); private-suite screen (run 39113570874): time 1.000 (arm64), 1.003 (x64), none of the hardest models worse | full MIPLIB (runs 39115313907 / 39115315327): x64 solved 92 -> 90, sgm 144.5 -> 145.1; arm64 92 -> 91, 146.1 -> 144.2; and a WRONG result on both arches: traininstance6 ends "optimal" at 28380 with dual bound 28379, beyond the known optimum 28290 (option off: 28290) | rejected: no gain over the full set; the wrong bound on traininstance6 is a latent bug in another component that this path exposes, to be shrunk with bench/mipdd.sh |
 | separator backoff (a separator none of whose cuts entered an LP over 3 runs is skipped for 2..64 calls; arXiv:2311.05650) | 0.994 without neos-2978193-inde; 24 -> 24 (markshare_4_0 119 -> 83 s, neos-911970 8.4 -> 5.4 s) | not run (screen gain within noise) | rejected |
-| strong-branching and pseudocost gains capped at the distance to the cutoff bound (2026-10-24; commit 454668a, branch sb-gain-cap) | local, 8 instances that lost time to the dual-proof fix, 300 s, run alongside other jobs: mas76 86 -> 22 s, gmu-35-40 276 -> 136 s, neos-4738912-atrato and sct2 from the time limit to 117 s and 249 s, the rest within noise | dispatch screen (run 40080166435): time 1.002 (arm64), 0.994 (x64), solved 65 -> 65; miplib-easy (runs 40080167844 / 40080169301): x64 solved 65 -> 66 but sgm 24.0 -> 24.9 s (markshare_4_0 44 -> 163 s, seymour1, swath3, dano3_3 slower), arm64 66 -> 66, sgm 24.7 -> 24.4 s | rejected: the local gains did not carry over to the screens; no full MIPLIB run (unclear screen, and the full runs vary by about +-3 solved) |
-| at most 100 cuts per separation round, after the parallelism filter (2026-10-24; commit c4f26f0, branch cut-cap-100) | local: the same paths as main on most of the 8 instances (100 is rarely reached there); a cap of 1000 changed nothing | dispatch screen (run 40080166435): time 0.997 (arm64), 0.998 (x64), but solved 65 -> 64 on both arches (diverse_10-01_0052 no longer solved) and the end gap +0.009% | rejected: loses a dispatch solve; no miplib-easy run |
+| strong-branching and pseudocost gains capped at the distance to the cutoff bound (2026-10-24; commit 454668a, branch sb-gain-cap) | local, 8 instances that lost time to the dual-proof fix, 300 s, run alongside other jobs: mas76 86 -> 22 s, gmu-35-40 276 -> 136 s, neos-4738912-atrato and sct2 from the time limit to 117 s and 249 s, the rest within noise | private-suite screen (run 40080166435): time 1.002 (arm64), 0.994 (x64), solved 65 -> 65; miplib-easy (runs 40080167844 / 40080169301): x64 solved 65 -> 66 but sgm 24.0 -> 24.9 s (markshare_4_0 44 -> 163 s, seymour1, swath3, dano3_3 slower), arm64 66 -> 66, sgm 24.7 -> 24.4 s | rejected: the local gains did not carry over to the screens; no full MIPLIB run (unclear screen, and the full runs vary by about +-3 solved) |
+| at most 100 cuts per separation round, after the parallelism filter (2026-10-24; commit c4f26f0, branch cut-cap-100) | local: the same paths as main on most of the 8 instances (100 is rarely reached there); a cap of 1000 changed nothing | private-suite screen (run 40080166435): time 0.997 (arm64), 0.998 (x64), but solved 65 -> 64 on both arches (P2 no longer solved) and the end gap +0.009% | rejected: loses a private-suite solve; no miplib-easy run |
 
 HiGHS already detects implied integers column by column (a continuous
 column in an integral equation, or, dually, with integral rows and
 bounds): on MIPLIB the network rule added such columns on 10 of 72
 presolved models (neos-2978193-inde, binkar10_1, markshare2/4_0,
-neos-911970, ns1208400 among them; none on the dispatch models).
+neos-911970, ns1208400 among them; none on the private suite).
 
 ## Deterministic two-thread runs: `mip_deterministic` (off by default; 2026-10-23)
 
 On two threads (with `mip_rel_gap` >= 1e-3) the main solver runs a
 concurrent LNS helper, and a run's path depended on the timing in three
 ways: the root LP race (IPX against the dual simplex: on
-`diverse_10-01`, `dm_medium_pert_s1_ramp` and the `wind185` tick the two
+P2, P6 and P8 the two
 finish close together, and 1 of 3 local runs flipped), the race's
 interrupted dual simplex iterations (added to the LP iteration count that
 sets the LNS budgets), and the exchange of incumbents, bounds, root cuts
@@ -1251,7 +1256,7 @@ the other's latest state of at most half its own count, waiting until the
 other's clock is beyond it (never past the time limit: a time-limited run
 still stops at a timing-dependent point). The two ratios must multiply to
 less than 1, or both sides can wait for ever (1 and 2 hung). Off, the
-paths are main's (quick_check; 2-thread dispatch runs on the instruction
+paths are main's (quick_check; 2-thread private-suite runs on the instruction
 clock give main's outcomes). CI runs neos-911970 three times on two
 threads with it and compares node and LP iteration counts.
 
@@ -1260,10 +1265,10 @@ geometric mean of the time ratios of runs both solve):
 
 | variant | arm64 | x64 | slowest |
 |---|---|---|---|
-| no race, work-clock exchange (= `mip_deterministic`) | 1.47 | 1.38 | small_pert_s1_ramp 1.73-1.75, lambda 080458 1.67, hard tick 1.63-1.67, medium_randsoc 1.46-1.48; hard_10-03 gap +0.08-0.10 |
-| race kept, work-clock exchange, race effort counted as IPX's basic structural columns (not deterministic on close races) | 1.15 | 1.22 | hard tick 1.69-1.71, small_pert_s1_ramp 1.64-1.66, medium_randsoc 1.47-1.49 |
-| race kept, race effort not counted | 1.63 | 1.71 | the ramp models 2.2-2.6 (smaller LNS budgets) |
-| IPX's basis whenever it solves (deterministic race) | 1.88 | 1.96 | medium_pert_s1_ramp 3.4 |
+| no race, work-clock exchange (= `mip_deterministic`) | 1.47 | 1.38 | P11 1.73-1.75, P4 1.67, P3 1.63-1.67, P13 1.46-1.48; P1 gap +0.08-0.10 |
+| race kept, work-clock exchange, race effort counted as IPX's basic structural columns (not deterministic on close races) | 1.15 | 1.22 | P3 1.69-1.71, P11 1.64-1.66, P13 1.47-1.49 |
+| race kept, race effort not counted | 1.63 | 1.71 | the ramp-limited models 2.2-2.6 (smaller LNS budgets) |
+| IPX's basis whenever it solves (deterministic race) | 1.88 | 1.96 | P6 3.4 |
 
 Solved: 67 -> 67 (both arches) for the first row. Runs 39970299772 and
 39985883614.
@@ -1276,11 +1281,11 @@ per 1000 propagated rows (1-16), per graph LNS iteration (4-64 per 1000
 rows), live simplex iterations (the clock moves during an LP solve, not
 only at its end), and other ratios (main 0.5-3, helper 0.3-0.9), with
 and without the root race (the race counted deterministically). Best
-(race kept, separation 4): hard tick 6.4 s off -> 9.0-11 s, 
-dm_small_pert_s1_ramp 1.21 -> 1.34-1.57, dm_medium_randsoc_noramp 1.05 ->
-1.52-1.56, dm_full_pert_s1_ramp 6.1 -> 7.1-7.6, wind185 1.31 -> 1.38,
-dm_full_randsoc_ramp 6.3 -> 6.3. Without the race add the race's own cost
-(lambda_080458 1.8 -> 2.7 s). No setting comes near 1.1x, so no runner
+(race kept, separation 4): P3 6.4 s off -> 9.0-11 s, 
+P11 1.21 -> 1.34-1.57, P13 1.05 ->
+1.52-1.56, P5 6.1 -> 7.1-7.6, P8 1.31 -> 1.38,
+P10 6.3 -> 6.3. Without the race add the race's own cost
+(P4 1.8 -> 2.7 s). No setting comes near 1.1x, so no runner
 screen. Why: the helper's graph LNS finds its solutions in bursts and,
 off, the main solver takes each at once during its quick search and root
 separation; deterministic, it takes them at most at half its own work,
@@ -1288,7 +1293,7 @@ and the helper's work does not run at a steady rate (a root LP re-solve
 adds thousands of iterations at once, LNS screens add none), so no
 weighting keeps the two clocks in step with time. Weights that help one
 model hurt another (live iterations: small_pert 1.57 -> 1.34,
-medium_randsoc 1.56 -> 1.81). Nothing kept.
+P13 1.56 -> 1.81). Nothing kept.
 
 **A crash found on the way: a linker bug, not undefined behaviour.** With
 the deterministic check inlined into import_root_cuts, the macOS release
@@ -1310,7 +1315,7 @@ newer Command Line Tools (26.x are available here).
 clock barely moves during root separation (few LP iterations per round,
 the time is in the separators), while the helper's runs ahead in graph
 LNS. Taking the helper's state at half the main solver's count then means
-the helper's state from seconds before: on the hard tick the helper's
+the helper's state from seconds before: on P3 the helper's
 solutions reached the main solver 3-5 s late, though it waited only 0.1 s.
 Other ratios (main 0.5-4, helper 0.2-0.9) and weighting iterations by LP
 rows did not help locally. To revisit: a clock that also counts the work
@@ -1349,8 +1354,8 @@ infinite). The cargo feature `highs_dual_proofs` keeps HiGHS's behaviour,
 for the CI oracle. traininstance6 with the fix: 28290
 on main seeds 0-3 and 9, and on the Gomory branch's seeds 0 and 1.
 
-Screens (runs with an option, since replaced by the feature): dispatch (run 39985670699) time 0.995 on both arches, no
-motivating tick worse; miplib-easy, off against on at the same commit
+Screens (runs with an option, since replaced by the feature): the private suite (run 39985670699) time 0.995 on both arches, none of
+the hardest models worse; miplib-easy, off against on at the same commit
 (runs 39985674652 / 39985678322): x64 solved 66 -> 64 (neos-1456979 289 s
 and tr12-30 193 s now at the 300 s limit), sgm 24.6 -> 23.8 s; arm64
 66 -> 66, 24.1 -> 24.1 s; no wrong result.
@@ -1370,10 +1375,10 @@ use exact products, and extractCliquesFromCut uses a tolerance of at least
 epsilon / |coefficient|. `highs_dual_proofs` now keeps all of 1.15.1's
 arithmetic. Against main: traininstance6 28290 on seeds 0-11 (seed 5 rerun
 without a limit: the 1200 s runs of both builds hit it on a loaded Mac); traininstance2 no
-wrong bound on seeds 0-11 (all at the limit). Dispatch screen, 1 thread
+wrong bound on seeds 0-11 (all at the limit). The private suite screen, 1 thread
 (run 41314347064): time 0.994 arm64, 1.009 x64, solved 65 -> 67 on both;
-2 threads (run 41314349451): 0.956 arm64, 0.974 x64; no motivating tick
-worse beyond noise. miplib-easy (runs 41314351665 / 41314353998 for main):
+2 threads (run 41314349451): 0.956 arm64, 0.974 x64; none of the hardest
+models worse beyond noise. miplib-easy (runs 41314351665 / 41314353998 for main):
 66/66 solved on both arches (main x64 65: neos-1456979 solved again),
 paired shifted time ratio 1.014 arm64 (1.007 without markshare_4_0), x64
 same-CPU pairs 1.015 (0.997 without it); no wrong result.
@@ -1381,7 +1386,7 @@ same-CPU pairs 1.015 (0.997 without it); no wrong result.
 ## Root LP profile after PR #9; bitmap solves for denser results: rejected (2026-10-24)
 
 Profile of the root LPs on main (macOS `sample`, self time inside the
-simplex solve, each instance weighted 1): 18 dispatch roots: dense FTRAN
+simplex solve, each instance weighted 1): 18 private-suite roots: dense FTRAN
 (`HFactor::ftran`, the U solve inlined) 23%, bitmap sparse solves 22%,
 factorization 10%, `Dual::iterate` 8%, row PRICE 6%, FTRAN L 4%; 26
 MIPLIB benchmark roots: dense FTRAN 20%, row PRICE 14%, `Dual::iterate`
@@ -1397,12 +1402,12 @@ Root LP instructions on the M1, against main:
 
 | k | 1.5 | 2 | 3 | 5 | unlimited |
 |---|---|---|---|---|---|
-| dispatch (19) | 0.972 | 0.960 | 0.954 | 0.957 | 0.984 |
+| private suite (19) | 0.972 | 0.960 | 0.954 | 0.957 | 0.984 |
 | MIPLIB (25) | 0.993 | 0.990 | 0.986 | 0.987 | 1.030 (qap10 1.22) |
 
 (neos-5052403-cygnet's root LP: 953 s -> 440 s on the M1.) But the
-runner screen at k = 3 (same paths, so time only) shows no gain: dispatch
-screen 0.996 (arm64) and 1.015 (x86_64; the ramp models 1.02-1.03
+runner screen at k = 3 (same paths, so time only) shows no gain: the private suite's
+screen 0.996 (arm64) and 1.015 (x86_64; the ramp-limited models 1.02-1.03
 slower), bench-std miplib-easy 0.998 and 1.015. On x86_64 the dense loops
 over moderately dense vectors beat the bitmap's word scan and gathers, and
 on arm64 the instruction saving does not show in time. Not kept.
@@ -1412,7 +1417,7 @@ on arm64 the instruction saving does not show in time. Not kept.
 Main 3d10eed, one thread, 120 s, `mip_rel_gap = 0.01`, samply at 1 kHz,
 stacks expanded through inlining (share of all samples):
 
-| | hard_10-03 | diverse_10-01 | hard tick | dm_full_pert_s1_ramp | lambda 080458 |
+| | P1 | P2 | P3 | P5 | P4 |
 |---|---|---|---|---|---|
 | factor total | 25.0% | 42.3% | 42.3% | 54.3% | 45.0% |
 | DSE FTRAN | 6.2 | 11.3 | 13.7 | 17.9 | 7.8 |
@@ -1442,8 +1447,8 @@ Tried, not kept:
   loops): same paths, 1.003-1.009x the instructions and 0.994-1.024x the
   cycles on six models (the branch costs more than the store).
 - Multiplying by a cached reciprocal of the U pivots instead of dividing
-  (changes the last bit, so the paths): root LPs alone (dm_full_pert_s1_ramp,
-  diverse_10-01, the hard tick) took 9-14% more simplex iterations
+  (changes the last bit, so the paths): root LPs alone (P5,
+  P2, P3) took 9-14% more simplex iterations
   (23713 -> 26956, 20012 -> 21553, 19720 -> 22511) and 21-34% more cycles;
   the division is not the cost it looks.
 
@@ -1456,11 +1461,11 @@ main at 0ff794e):
 
 | model | nodes | LP solves | LP time | refactors | refactor time | of which cut changes | node-basis restores | in-solve: synthetic clock / numerical / other |
 |---|---|---|---|---|---|---|---|---|
-| hard_10-03_1340 (120 s limit) | 181 | 14727 | 75.3 s | 231 | 1.46 s (1.9%) | 86, 0.64 s | 7, 0.05 s | 109 / 16 / 13 |
-| diverse_10-01_0052 (120 s limit) | 202 | 10543 | 94.5 s | 502 | 3.05 s (3.2%) | 78, 0.53 s | 14, 0.09 s | 328 / 66 / 15 |
-| lambda_20260930_142050_3c1b60d6 (hard tick) | 1 | 1663 | 12.2 s | 108 | 0.48 s (3.9%) | 30, 0.18 s | 5, 0.02 s | 72 / 1 / 0 |
-| dm_full_pert_s1_ramp | 1 | 489 | 15.9 s | 157 | 0.78 s (4.9%) | 1 | 3 | 152 / 1 / 0 |
-| lambda_20260930_080458_22776806 | 1 | 15 | 2.7 s | 57 | 0.18 s (6.5%) | 0 | 3 | 54 / 0 / 0 |
+| P1 (120 s limit) | 181 | 14727 | 75.3 s | 231 | 1.46 s (1.9%) | 86, 0.64 s | 7, 0.05 s | 109 / 16 / 13 |
+| P2 (120 s limit) | 202 | 10543 | 94.5 s | 502 | 3.05 s (3.2%) | 78, 0.53 s | 14, 0.09 s | 328 / 66 / 15 |
+| P3 | 1 | 1663 | 12.2 s | 108 | 0.48 s (3.9%) | 30, 0.18 s | 5, 0.02 s | 72 / 1 / 0 |
+| P5 | 1 | 489 | 15.9 s | 157 | 0.78 s (4.9%) | 1 | 3 | 152 / 1 / 0 |
+| P4 | 1 | 15 | 2.7 s | 57 | 0.18 s (6.5%) | 0 | 3 | 54 / 0 / 0 |
 | air05 (sub-MIPs: 1148 solves, 1.6 s) | 1 | 445 | 1.9 s | 407 | 0.11 s | 61 | 7 | 338 / 0 / 0 |
 | neos17 (sub-MIPs: 2904 solves, 0.8 s) | 35 | 1664 | 0.5 s | 262 | 0.02 s | 97 | 31 | 133 / 0 / 0 |
 
@@ -1474,7 +1479,7 @@ slacks (HFactor::add_rows is ported but unused, like HiGHS's
 kExtendInvertWhenAddingRows) could save at most about 1%, and that is
 below what the screens can see. It was not tried.
 
-The cost is elsewhere in each solve. On hard_10-03 the 75.3 s of LP time
+The cost is elsewhere in each solve. On P1 the 75.3 s of LP time
 splits into iterations 35.2 s, rebuilds 17.2 s (computing the primal and
 dual values: dense FTRAN and BTRAN on these models) and other work in the
 solve 22.9 s. A sampled profile of the LP solves shows two items:
@@ -1483,26 +1488,26 @@ solve 22.9 s. A sampled profile of the LP solves shows two items:
 - factor_solve_error at 4.3%. That is the test solve (an FTRAN and a
   BTRAN of a random 50-nonzero vector) that decides whether a rebuild at
   a possible optimum may skip the refactor. It runs at every such rebuild
-  and almost never asks for a refactor: 0 of 10765 checks on diverse, 1
-  of 12116 on hard_10-03, 0 of 3760 on the hard tick, 2 of about 30000 on
+  and almost never asks for a refactor: 0 of 10765 checks on P2, 1
+  of 12116 on P1, 0 of 3760 on P3, 2 of about 30000 on
   9 MIPLIB models. The factors it checks carry about 1200 updates on the
-  dispatch ticks. The check cost 3-5% of the LP time on the dispatch
+  models of the private suite. The check cost 3-5% of the LP time on the private-suite
   models, neos17, neos-911970 and nu25-pr12.
 
 Lever tried (branch refactor-check-skip, commit f35b10d): a check that
 passes covers the next 50 updates of the same factor, and a new factor
 is checked again.
 - Local runs: the same nodes, LP iterations and objective as main on the
-  hard tick, dm_full_pert_s1_ramp, lambda 080458, neos17, neos-911970,
-  nu25-pr12 and air05 (to 1% gap), and on hard_10-03 and diverse to 60
+  P3, P5, P4, neos17, neos-911970,
+  nu25-pr12 and air05 (to 1% gap), and on P1 and P2 to 60
   nodes. Time 73.96 / 75.60 s and 50.63 / 51.97 s on the two node-limited
-  ticks, about the same on the rest.
+  models, about the same on the rest.
 - CI's oracle job matches the C++ app without a feature to restore the
   old check.
-- Dispatch screen (run 40084214640): per-instance time ratios 0.96-1.007,
+- The private suite screen (run 40084214640): per-instance time ratios 0.96-1.007,
   most 0.98-0.99. The geometric mean shows 1.016 (arm64) and 1.015 (x64)
-  only because of diverse_10-01_0052's one solved pair (1.28). t1 0.993
-  (arm64), 0.989 (x64); hard_10-03 t1 0.978 on x64.
+  only because of P2's one solved pair (1.28). t1 0.993
+  (arm64), 0.989 (x64); P1 t1 0.978 on x64.
 - miplib-easy (runs 40084216316 / 40084218091): x64 solved 65 -> 66
   (tr12-30), sgm 25.3 -> 25.4 s; arm64 66 -> 66, 25.0 -> 24.2 s; no wrong
   result.
@@ -1513,7 +1518,7 @@ is checked again.
 The two other per-solve costs were looked at for a path-preserving cut,
 and neither has one:
 - The KKT pass after each LP run (lp_basic_infeasibilities, through
-  callLpKktCheck; 4.7% of LP time on hard_10-03) feeds info fields the
+  callLpKktCheck; 4.7% of LP time on P1) feeds info fields the
   MIP acts on. After every optimal node LP, LpRelaxation::run classifies
   the result by max_primal_infeasibility and max_dual_infeasibility.
   perform_aging and the dual proofs test max_dual_infeasibility, and
@@ -1536,9 +1541,9 @@ and neither has one:
 
 **x86_64 profile** (`perf record`, GitHub `ubuntu-24.04` runner, AMD EPYC
 9V45, whole run to the end of the root LP, so presolve and the root
-heuristics are included). Dispatch: the factor solves first, as on the M1
-(lambda_080458: bitmap solves 14%, `Dual::iterate` 13%, dense FTRAN 10%,
-row PRICE 9%; dm_full_pert_s1_ramp: dense FTRAN 16%, `iterate` 12%, bitmap
+heuristics are included). The private suite: the factor solves first, as on the M1
+(P4: bitmap solves 14%, `Dual::iterate` 13%, dense FTRAN 10%,
+row PRICE 9%; P5: dense FTRAN 16%, `iterate` 12%, bitmap
 11%, row PRICE 10%). MIPLIB: `Dual::iterate` is much larger than on the
 M1 (dano3_3 29%, rail507 29%, neos-957323 25%, qap10 19%), then row PRICE
 (18% on dano3_3, rail507 and neos-957323) and column PRICE (air04 6%,
@@ -1567,13 +1572,13 @@ noted):**
 - Row PRICE's new-nonzero index stored by a select: 1.000 on eight
   PRICE-heavy roots (LLVM already does this).
 - Column PRICE from row_ep density 0.95 instead of 0.75: MIPLIB 0.996,
-  dispatch 1.000; from 0.5: MIPLIB 1.015 (rail507 1.13, dano3_3 1.10).
+  the private suite 1.000; from 0.5: MIPLIB 1.015 (rail507 1.13, dano3_3 1.10).
 - Hyper-sparse row PRICE threshold 0.05 or 0.2 instead of 0.1: within
   0.997-1.005.
 
 What is left is the four passes over row_ap. Fusing the pack copy into
 PRICE and CHUZC (no pack arrays) is bounded by `choose_makepack`'s 4-10%
-on these MIPLIB roots and about 1% on dispatch, and moves gathers into
+on these MIPLIB roots and about 1% on the private suite, and moves gathers into
 `choose_possible`. Not done.
 
 ## Root LP iteration counts: algorithm, perturbation, IPX (2026-10-24)
@@ -1585,31 +1590,31 @@ means of ratios against the default: iterations, root LP time):
 
 | Group | default: iterations, root s | primal simplex | no cost perturbation | perturbation x0.5 | perturbation x2 | IPX + crossover (time) |
 |---|---|---|---|---|---|---|
-| dispatch noramp (14) | 9551, 0.32 | 1.69, 2.35 | 1.03, 1.01 | 1.02, 1.03 | 0.99, 1.00 | 2.57 |
-| dispatch ramp (5) | 17898, 2.85 | 1.82, 2.38 | 1.14, 1.03 | 0.98, 0.90 | 0.93, 0.88 | 0.67 |
-| lambda ticks (3) | 15482, 1.76 | 1.98, 1.55 | 0.99, 0.97 | 1.00, 1.01 | 1.06, 1.08 | 0.77 |
-| hard_10-03, diverse_10-01 | 12497, 1.08 | 2.41, 2.40 | 1.00, 0.97 | 0.97, 0.92 | 1.01, 1.09 | 1.61 |
+| private suite, no ramp limits (14) | 9551, 0.32 | 1.69, 2.35 | 1.03, 1.01 | 1.02, 1.03 | 0.99, 1.00 | 2.57 |
+| private suite, ramp limits (5) | 17898, 2.85 | 1.82, 2.38 | 1.14, 1.03 | 0.98, 0.90 | 0.93, 0.88 | 0.67 |
+| P3, P4, P8 | 15482, 1.76 | 1.98, 1.55 | 0.99, 0.97 | 1.00, 1.01 | 1.06, 1.08 | 0.77 |
+| P1, P2 | 12497, 1.08 | 2.41, 2.40 | 1.00, 0.97 | 0.97, 0.92 | 1.01, 1.09 | 1.61 |
 | MIPLIB, PRICE-heavy (11) | 19002, 2.57 | 1.12, 1.48 | 1.82, 2.35 | 1.12, 1.21 | 0.92, 0.90 | 0.49 |
 | buildingenergy | 252109, 66.8 | 0.77, 5.81 | 1.33, 1.12 | 1.00, 0.90 | 1.01, 1.26 | over 600 s |
 
-- No setting takes 10% off the dispatch roots without a loss elsewhere:
-  perturbation x0.5 is 0.90 on the ramp models and buildingenergy but 1.21
-  on MIPLIB; x2 is 0.88 on the ramp models and 0.90 on MIPLIB but 1.08 on
-  the lambda ticks and 1.26 on buildingenergy. All dispatch models: 0.99
+- No setting takes 10% off the private-suite roots without a loss elsewhere:
+  perturbation x0.5 is 0.90 on the ramp-limited models and buildingenergy but 1.21
+  on MIPLIB; x2 is 0.88 on the ramp-limited models and 0.90 on MIPLIB but 1.08 on
+  P3, P4 and P8 and 1.26 on buildingenergy. All models of the private suite: 0.99
   either way.
-- The primal simplex takes 1.7-2.4 times the iterations on dispatch.
+- The primal simplex takes 1.7-2.4 times the iterations on the private suite.
 - IPX with crossover: as found before (`mip_root_lp_ipx`), faster on the
-  ramp and lambda models, slower on the rest; on two threads the race
+  ramp-limited models and P3, P4, P8, slower on the rest; on two threads the race
   already picks it where it wins.
 - Crash bases: `simplex_crash_strategy` is not used by the simplex (as in
   HiGHS, whose dual simplex starts from the slack or a given basis), and
   the dual phase 1 has no alternative to choose. How far the slack basis
   is from the optimum: the dual simplex takes 1.0-1.2 iterations per basic
-  structural column of the optimal basis on the noramp models and 1.4-2.4
-  on the ramp and lambda ones (2026-10-10 above), so on most dispatch
-  roots it is near the floor that a slack start allows; a crash would have
-  to guess most of the optimal structural basis to help, and the ramp and
-  lambda models, where there is room, are the ones IPX already wins.
+  structural column of the optimal basis on the models without ramp limits and 1.4-2.4
+  on the ramp-limited ones and P3, P4, P8 (2026-10-10 above), so on most
+  of the suite's roots it is near the floor that a slack start allows; a crash would have
+  to guess most of the optimal structural basis to help, and the
+  ramp-limited models and P3, P4 and P8, where there is room, are the ones IPX already wins.
 
 Nothing kept.
 
@@ -1633,23 +1638,23 @@ Share of the time in the exact recomputation (samply, 1 thread):
 
 | model | rows | exact DSE init | DSE FTRAN per iteration |
 |---|---|---|---|
-| hard_10-03, diverse_10-01, hard tick, dm_full_pert_s1_ramp, lambda 080458 | > 20000 | 0% (restore: <0.1%) | 6.8-19% |
-| dm_medium_randsoc_noramp | 15.6k | 1.1% | 10.1% |
-| dm_small_pert_s1_ramp | 5.4k | 4.5% | 17.8% |
+| P1, P2, P3, P5, P4 | > 20000 | 0% (restore: <0.1%) | 6.8-19% |
+| P13 | 15.6k | 1.1% | 10.1% |
+| P11 | 5.4k | 4.5% | 17.8% |
 | neos-911970 / pk1 / air05 | small | 4.6% / 5.6% / 1.7% | 4.8% / 2.8% / 2.4% |
 
 Experiments (paths change):
 - (a) Devex for sub-MIP LPs, node LPs or both (`simplex_dual_edge_weight_strategy`
-  on those LP solves only): no change on the dispatch models (they solve at
+  on those LP solves only): no change on the private suite (they solve at
   the root; graph LNS uses the main LP); neos-911970 1.12 / 1.16 / 1.01x the
   instructions. (Devex for the LNS LPs was rejected earlier: twice the
-  instructions on the hardest tick.)
+  instructions on the hardest model.)
 - (b) weights kept at every size (`simplex_dse_exact_init_max_rows` = 0 in
   the MIP; branch dse, 25ee6cc). Locally, instructions to finish, 1 thread:
-  dm_medium_randsoc 0.77, dm_small_pert_s1_ramp 0.73, dm_small_windlull
-  0.65, dm_medium_pert_s1_ramp 1.01, neos-911970 1.09, pk1 0.91, air05
+  P13 0.77, P11 0.73, P7
+  0.65, P6 1.01, neos-911970 1.09, pk1 0.91, air05
   0.93, neos17 1.06, nu25-pr12 0.64, mzzv11 0.96 (geometric mean 0.86).
-  Dispatch screen (run 40081473738, 1 thread): time 0.970 (arm64), 0.965
+  The private suite screen (run 40081473738, 1 thread): time 0.970 (arm64), 0.965
   (x64); medium and small models 0.88-0.93, the large ones 0.994-1.005, no
   loss. miplib-easy (runs 40081476692 main / 40081477922): arm64 solved
   66 -> 66, shifted time 0.952 [0.884, 1.025], sgm 24.6 -> 22.9 s; x64
@@ -1658,17 +1663,17 @@ Experiments (paths change):
   much faster neos-3083819-nubu, decomp2 (8-9x), n2seq36q, neos-1582420
   (2x).
 
-  Full runs (branch dse, main run at the same time). Dispatch, 25 models,
+  Full runs (branch dse, main run at the same time). The private suite, 25 models,
   16 seeds, 180 s: one thread (run 40083950258) 1.001 (arm64), 0.997
   (x64), solved 373 -> 372 and 371 -> 371; two threads (40083952331) 0.985
   and 0.978, 380 -> 380 and 379 -> 381. The screen's medium and small
-  models gain on one thread (dm_medium_randsoc 0.91, dm_small_windlull
-  0.89-0.91, dm_medium_pert_s1_noramp 0.93), but others lose:
-  dm_full_coarse24_noramp 1.13-1.14, dm_medium_pert_s1_ramp 1.11,
-  dm_small_prices_noramp 1.09-1.11 (two threads 1.12-1.28). Full MIPLIB
+  models gain on one thread (P13 0.91, P7
+  0.89-0.91, another medium-size one 0.93), but others lose:
+  a full-size one 1.13-1.14, P6 1.11,
+  a small one 1.09-1.11 (two threads 1.12-1.28). Full MIPLIB
   (40083954298 main / 40083955499): arm64 solved 94 -> 91, sgm 144.9 ->
   145.9 s; x64 90 -> 90, 143.9 -> 146.2 s; no wrong result. Fails the
-  merge criteria (dispatch <= 0.98 on both arches with no tick above 1.03;
+  merge criteria (the private suite <= 0.98 on both arches with no model above 1.03;
   MIPLIB within -2 solved and sgm <= 1.01): not merged, nothing kept.
 
   Why ns1208400 and swath3 lost in miplib-easy (local, 1 thread, seed 0):
@@ -1684,7 +1689,7 @@ Experiments (paths change):
 Where compute_primal and compute_dual run in the MIP's LP solves (samply,
 1 thread, 120 s; share of all samples, by caller):
 
-| | hard_10-03 | diverse_10-01 | hard tick | dm_full_pert_s1_ramp | lambda 080458 |
+| | P1 | P2 | P3 | P5 | P4 |
 |---|---|---|---|---|---|
 | primal at the start of a solve (initialise_for_solve) | 5.1% | 3.9% | 4.0% | 1.2% | 0.2% |
 | primal in rebuilds | 4.0 | 3.4 | 2.7 | 1.0 | 0.8 |
@@ -1692,7 +1697,7 @@ Where compute_primal and compute_dual run in the MIP's LP solves (samply,
 | dual at the start of a solve | 2.3 | 0.6 | 0.4 | 0.2 | 0.03 |
 | at the end of a solve (return_from_solve: objective bound, limits) | 0.2 | 0.6 | 0.8 | 0.02 | 0 |
 
-Why the rebuilds happen (hard_10-03, 60 s, 14000 rebuilds): 7599 are the
+Why the rebuilds happen (P1, 60 s, 14000 rebuilds): 7599 are the
 first rebuild of a solve, which already reuses the set-up's fresh values
 (no recompute); 3397 confirm optimality (CHUZR found no infeasible row)
 and 2933 a possibly dual-unbounded LP (an infeasible graph-LNS LP); 67
@@ -1713,71 +1718,21 @@ Tried (changes values, so paths): the primal values at a solve's start
 updated from the previous solve's (same basis) by one FTRAN of the
 columns whose nonbasic value changed, instead of the exact recompute (the
 solve's confirming rebuild still recomputes exactly). Instructions to
-finish, 1 thread: hard tick 0.87, dm_full_pert_s1_ramp 0.96, lambda
-080458 1.00, dm_small_pert_s1_ramp 1.82, dm_medium_randsoc 0.92,
-dm_small_windlull 1.22, dm_medium_pert_s1_ramp 1.08, neos-911970 0.94 /
+finish, 1 thread: P3 0.87, P5 0.96,
+P4 1.00, P11 1.82, P13 0.92,
+P7 1.22, P6 1.08, neos-911970 0.94 /
 1.00, pk1 0.76, air05 1.00, neos17 0.74, nu25-pr12 1.08, mzzv11 1.00:
 geometric mean 1.00, the spread from the changed paths. Below the 3% bar
 for a screen; not kept.
 
-## Structure-aware primal heuristics for the hard ticks: time coarsening (2026-10-25)
-
-The hard dispatch ticks are primal-limited: the improving move found by the
-long reference runs changes many binaries at once, with no feasible step in
-between. We tried two structural ideas, both as external prototypes with no
-solver changes.
-
-**Symmetry, and aggregating interchangeable units.** Symmetry detection
-finishes after the root LP, so it needs runs longer than 10 s to report.
-Every model checked has full orbitopes:
-
-- hard_10-03: 2, on 535 columns;
-- diverse_10-01: 1, on 515 columns;
-- lambda 080458: 2 orbitopes on 652 columns, plus 15 on 662;
-- the dm models: 1 each, on 560 columns (medium, small) or 1120 (full).
-
-On the hard ticks the orbitopes cover about a sixth of the binaries. A direct
-check of the column coefficients shows why: only units with no effect at a
-given period are interchangeable. The units that matter have different
-coefficients, so there is nothing to aggregate.
-
-**Time coarsening.** Restrict each time-indexed on/off binary to be constant
-over blocks of k periods, solve that model, then start the full model from its
-solution. The remaining time goes to the full model, for 180 s wall in all,
-on 1 thread. The baseline is crest's default run for 180 s. Runs were made
-three at a time on one machine.
-
-| model, seed | baseline 30 / 60 / 180 s | k=2 30 / 60 / 180 s | k=3 30 / 60 / 180 s |
-|---|---|---|---|
-| hard_10-03, 0 | -241862 / -241862 / -243940 | -240277 / -243396 / -243840 | -242376 / -242376 / -243578 |
-| hard_10-03, 1 | -244073 / -244073 / -245228 | -242926 / -242926 / -243294 | -240982 / -241436 / -242849 |
-| diverse_10-01, 0 | -242395 / -242395 / -242468 | -232647 / -232647 / -243035 | -226137 / -226137 / -242079 |
-| diverse_10-01, 1 | -240861 / -241217 / -241217 | -228911 / -240519 / -241636 | -225287 / -240519 / -241636 |
-
-Best known (2 h reference runs): hard_10-03 -248499, diverse_10-01 -248178.
-
-- The k-block phase used 40 s.
-- The restricted models are not much easier: after 120 s they were still at
-  gaps of 1.9-2.5%.
-- On the reference solutions, on/off changes fall evenly across block phases
-  (about 1/k of them at each phase), so the good schedules are not
-  block-structured.
-- Coarsening is worse than the baseline at 30 and 60 s.
-- At 180 s it wins by 0.2-0.3% on diverse_10-01 and loses by up to 0.8% on
-  hard_10-03.
-- Every run ends about 2% from the best known values, and so does the baseline.
-
-Not taken further and nothing is built in. Rolling-horizon relax-and-fix,
-from the unit commitment literature, is the closest untried relative.
-
 ## The MIP's LPs unscaled: `mip_lp_scaling` (default false; 2026-11-04)
 
-The new dispatch formulation variants of tick 1103_0404 (the "HTF"
-models, private) have many tiny coefficients, so their rows and columns
+Three later models of the private suite (P12, P14 and P20) have many
+tiny coefficients, so their rows and columns
 range over 9-11 orders of magnitude. HiGHS's forced equilibration (`simplex_scale_strategy`
 choose) takes geometric means over those entries: column factors reach
 2^20, scaled costs 8.6e7, and the tiny entries become pivot candidates.
-On the LP relaxation of g03_eta1_L133 (M1, one thread, instructions):
+On the LP relaxation of P12 (M1, one thread, instructions):
 
 | scaling | iterations | instructions | rebuilds "possibly dual unbounded" |
 |---|---|---|---|
@@ -1794,36 +1749,37 @@ candidates on the growth test one per pass, up to 4400 passes over a pack
 of 10k entries per iteration (90% of the main thread in one 60 s profile).
 Unscaled, no CHUZC call takes a second pass.
 
-Unscaled is also the faster root LP on the other dispatch models
+Unscaled is also the faster root LP on the other models of the private suite
 (`solve_relaxation`, one thread, instructions unscaled/scaled): geometric
 mean about 0.82 over the 36 models of the private set, 0.50-1.23 per
 model; and 0.91 on 60 MIPLIB relaxations (mzzv11 0.24, dano3_3 0.50,
 neos-957323 2.26). The MIP's LP relaxation (its own handle, so the user's
 `simplex_scale_strategy` never reached it) is now unscaled when the
 MIP has at least 10000 rows as given, before presolve (the size of the
-root LP's Devex switch gate; all 36 dispatch models are above it,
-dm_small at 13.9k); below that, the two MIPLIB relaxations that lose most unscaled
+root LP's Devex switch gate; all 36 models of the private suite are above it,
+the smallest at 13.9k); below that, the two MIPLIB relaxations that lose most unscaled
 (neos-957323 2.26, 3757 rows: in the MIP 48 -> 58 s, 405G -> 592G, root
 LP 18.8k -> 48.5k iterations; neos-960392 1.38, 4744 rows) keep scaling,
 and so do the check instances of the CLI comparison. `mip_lp_scaling =
 true` restores HiGHS's scaling everywhere (the oracle sets it).
 
-HTF models, two threads, 1% gap, 180 s (M3 Pro, loaded; time to 2% / 1%,
+P12, P14, P20 and a fourth model of the same application (P21), two
+threads, 1% gap, 180 s (M3 Pro, loaded; time to 2% / 1%,
 "-" = not reached):
 
 | model | seed | main | unscaled |
 |---|---|---|---|
-| g03_eta1_L133 | 0 | - / - (no incumbent) | 13.4 / 119.6 |
-| g03_eta1_L133 | 1 | 14.3 / 87.1 | 7.5 / 28.7 |
-| s1_heater | 0 | 69.6 / 180.0 | 12.1 / 85.5 |
-| s1_heater | 1 | 24.3 / 33.5 | 6.7 / 52.7 |
-| g03 | 0 | 180.0 / - (1.33%) | 13.0 / 132.2 |
-| g03 | 1 | 25.0 / - (1.13%) | 6.2 / 65.5 |
-| live | 0 | 7.2 / 26.3 | 8.0 / 19.3 |
+| P12 | 0 | - / - (no incumbent) | 13.4 / 119.6 |
+| P12 | 1 | 14.3 / 87.1 | 7.5 / 28.7 |
+| P14 | 0 | 69.6 / 180.0 | 12.1 / 85.5 |
+| P14 | 1 | 24.3 / 33.5 | 6.7 / 52.7 |
+| P20 | 0 | 180.0 / - (1.33%) | 13.0 / 132.2 |
+| P20 | 1 | 25.0 / - (1.13%) | 6.2 / 65.5 |
+| P21 | 0 | 7.2 / 26.3 | 8.0 / 19.3 |
 
-One thread, seed 0: first incumbent at 13.5-13.6 s on the three HTF
-models (main: none on g03_eta1_L133 and g03, 33 s on s1_heater), gap at
-180 s 1.30-1.35% (main: none, none, 1.86%); live 44 -> 52 s to 1%.
+One thread, seed 0: first incumbent at 13.5-13.6 s on P12, P14 and P20
+(main: none on P12 and P20, 33 s on P14), gap at
+180 s 1.30-1.35% (main: none, none, 1.86%); P21 44 -> 52 s to 1%.
 
 Tried and dropped: CHUZC removing every candidate that fails the growth
 test at once (from the first or the eighth pass on) instead of one per
@@ -1882,7 +1838,7 @@ the search and is not done here.
 
 ## Refactorization over a sequence of re-solves: `mip_lp_refactor_clock` (2026-11-23)
 
-**The profile.** The search phase of `tick_1018_0340` (one thread, M1):
+**The profile.** The search phase of P16 (one thread, M1):
 all of it is graph LNS, and 92% of that its LP re-solves. Over 8000
 dual simplex solves, in instructions per solve:
 
@@ -1913,7 +1869,7 @@ the factor is then rebuilt once per 700 iterations, an iteration costs
 0.45 M instructions instead of 0.76 M and a solve 20.7 M instead of
 24.0 M.
 
-**Runners** (bench-dispatch runs 45303727610 and 45303725216: 16 seeds,
+**Runners** (bench-paired runs 45303727610 and 45303725216: 16 seeds,
 36 models, 180 s, 576 pairs per architecture, against the option off):
 
 | | one thread (arm64) | two threads (arm64 / x86-64) |
@@ -1923,20 +1879,20 @@ the factor is then rebuilt once per 700 iterations, an iteration costs
 | time to within 1% of the best known | 0.969 [0.953, 0.986] | 0.965 [0.955, 0.974] / 0.956 [0.946, 0.966] |
 | primal gap over the run, difference | -0.036 ± 0.008 | -0.031 ± 0.007 / -0.037 ± 0.007 |
 
-By model at two threads: the five `ovn_*` 0.84-0.96, `tick_1018_0340`
-and `tick_1018_0420` 0.87-0.95, `lambda_20260930_142050_3c1b60d6` 0.76 /
-0.77, `diverse_10-01_0052` 0.69 / 0.80, `tick_1015_1901` 0.92 / 0.91,
+By model at two threads: one family of five 0.84-0.96, P16
+and P17 0.87-0.95, P3 0.76 /
+0.77, P2 0.69 / 0.80, P15 0.92 / 0.91,
 and the models that solve at the root 0.94-1.02 (their cut rounds are
-re-solves too: `dm_full_pert_s1_noramp` 0.960 [0.939, 0.982] / 0.943
-[0.924, 0.963]). At one thread: `tick_1025_0028` 0.81 [0.66, 1.00],
-`tick_1015_1901` 0.86 [0.78, 0.96], `ovn_1148_g105` 0.67 [0.45, 0.99],
-and more runs solved of `diverse_10-01_0052` (2 -> 6) and
-`tick_1018_0420` (11 -> 13).
+re-solves too: one of them 0.960 [0.939, 0.982] / 0.943
+[0.924, 0.963]). At one thread: P18 0.81 [0.66, 1.00],
+P15 0.86 [0.78, 0.96], another model 0.67 [0.45, 0.99],
+and more runs solved of P2 (2 -> 6) and
+P17 (11 -> 13).
 
-One model is slower at two threads, `tick_1025_0004`: 1.38 [1.05, 1.80]
+One model is slower at two threads, P22: 1.38 [1.05, 1.80]
 / 1.43 [1.08, 1.90] over these 16 seeds, 1.08 [0.86, 1.36] / 1.10 [0.88,
-1.37] over 32 more (run 45313725729, where `tick_1025_0028`,
-`tick_1023_2236` and `tick_1015_1901` are at 0.92-0.96), and 1.19 [0.99,
+1.37] over 32 more (run 45313725729, where P18,
+another model and P15 are at 0.92-0.96), and 1.19 [0.99,
 1.43] over 48 pairs on the M1 (8.5 s against 7.1 s). At one thread it is
 1.00 [0.85, 1.17], and its time to within 1% of the best known is
 shorter at two threads as well (0.93 / 0.91). What differs there is the
@@ -1976,22 +1932,22 @@ both behind an environment variable on a branch (not merged):
   40 s was 0.3% worse.
 - The primal values recomputed and the dual values as updated, on top
   of the clock change: where the path stays the same
-  (`ovn_0636_g147`, the same incumbent and LP iterations) the solve
+  (on one model, the same incumbent and LP iterations) the solve
   takes 0.97 of the time; over 24 pairs (8 models, 3 seeds, one thread,
   M1, instruction clock) 1.02 [0.90, 1.17]. Too little for what it
   gives up.
 
 **Not kept: a sparse Cholesky for IPX's linear systems** (branch
-`exp/ipx-cholesky`). On the dispatch root LPs IPX's interior point
+`exp/ipx-cholesky`). On the private-suite root LPs IPX's interior point
 iterations take 50-80 ms each (3.1 s of 3.45 s on
-`dm_full_pert_s1_ramp`; the crossover takes 0.35 s). The normal matrix
+P5; the crossover takes 0.35 s). The normal matrix
 has a sparse factor (minimum degree: 0.9-1.1 M entries for 25-29k rows),
 so the prototype runs the interior point method on its Cholesky
 factorization (up-looking, by rows) as the preconditioner of the
 conjugate residual method, which then takes one step per solve. A
 factorization takes 52 ms (72-87 M updates through index arrays), so an
 iteration costs 63-80 ms: what IPX's costs. A supernodal factorization
-could be three to five times faster, but on the production ticks the
+could be three to five times faster, but on the models of everyday size the
 first root LP is 1.5 s of dual simplex against an estimated 1.2-1.3 s
 then: not pursued.
 
@@ -2008,7 +1964,7 @@ then: not pursued.
   FMA (x86-64-v3); the generic x86_64 build and `no_fma` take the x86_64
   C++ paths. Under Rosetta
   2 (translated code, indicative only): every case same path, all 0.775.
-  On native x86_64 (AWS Lambda, gcc builds, a dispatch MILP suite, with the
+  On native x86_64 (a cloud function, gcc builds, the private suite, with the
   port then part Rust and part C++): 0.945
   of the C++'s time at one thread and 0.957 at two, 18 of 20 solves
   bit-identical at the time of that measurement (2026-10-06, before the
@@ -2018,7 +1974,7 @@ then: not pursued.
   `libstdcxx no_fma` against the oracle's gcc build of the C++ app, every
   case same path): MIP 0.779, LP dual simplex 0.812, LP primal simplex
   0.942, IPX 0.942, PDLP 0.676, read 0.330, all 0.776. Built for
-  x86-64-v3 (AVX2, as on Lambda) against the generic x86_64 build: MIP
+  x86-64-v3 (AVX2) against the generic x86_64 build: MIP
   0.957, LP dual simplex 0.952, LP primal 0.961, IPX 0.975, all 0.965,
   every case same path (both with `no_fma`; the CI oracle checks the v3
   build too). The default x86-64-v3 build fuses: see the Rust-specific

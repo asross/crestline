@@ -32,12 +32,12 @@ HIGHS_RUST build" below.
 **Roadmap after the extraction:** (1) the leading performance
 opportunities (dense/supernodal switch in HFactor's triangular solves,
 concurrent FTRANs per dual iteration, x86-specific tuning), evaluated on
-the dispatch suite over 16 seeds; (2) primal feasibility: the MIPFEAS
+the private suite (docs/benchmarks.md) over 16 seeds; (2) primal feasibility: the MIPFEAS
 benchmark (gams.com/blog/2026/03/expanding-the-focus-introducing-the-mipfeas-benchmark),
 and whether the methods of arXiv:2609.05954 and Local-MIP
 (github.com/shaowei-cai-group/Local-MIP) add to feasibility jump and the
-graph LNS. Note: Local-MIP fails badly on the dispatch MILPs, presumably
-because their equality chains of continuous state-of-charge / ramp
+graph LNS. Note: Local-MIP fails badly on the private suite, presumably
+because its equality chains of continuous state and ramp
 variables defeat single-variable moves (as for feasibility jump); look
 for methods that handle equality-coupled continuous structure.
 
@@ -97,8 +97,8 @@ negative coefficient (`row_upper / val.abs()`), `bench/mipdd.sh
 check/instances/p0548.mps diff` takes p0548 (176 rows, 548 binaries) to
 one equality row over two binaries, `-180 x - 71 y = -71`, on which
 crest reports a solve error and the C++ app the optimum 0, in about 100
-solves (30 s, plus 15 s to build MIP-DD). Dispatch
-instances are private: shrink them locally and do not commit the result
+solves (30 s, plus 15 s to build MIP-DD). The private suite's
+instances stay private: shrink them locally and do not commit the result
 unless it is anonymized.
 
 ## Known divergences from the C++ (deliberate)
@@ -123,31 +123,31 @@ unless it is anonymized.
 
 - **Graph LNS cost perturbation (`mip_graph_lns_cost_perturbation`,
   off by default):** the C++ perturbs costs in graph LNS's LP solves.
-  Crestline does not by default (faster on the dispatch models, see
+  Crestline does not by default (faster on the private suite, see
   performance.md); `bench/quick_check.sh` and `bench/perf.py` set it to
   true for crest, so the oracle compares the same paths.
 - **Flip search first (`mip_graph_lns_flip_first`, on by default):**
   when the root dive leaves the incumbent within three target gaps of
   the bound, or with decision columns that share no row with another
   integer column, graph LNS's quick search starts with its flip search
-  (see dispatch.md); the C++ runs it last. The oracle sets it to false
+  (see graph-lns.md); the C++ runs it last. The oracle sets it to false
   for crest.
 - **The flip search's memory (`mip_graph_lns_flip_memory`, on by
   default):** a move that did not improve is not tried again until a
   decision column in a row of one of its columns has changed (see
-  dispatch.md); the C++ tries it again after every improving move. The
+  graph-lns.md); the C++ tries it again after every improving move. The
   oracle sets it to false for crest.
 - **A neighbourhood search that stalls (`mip_graph_lns_stall_nodes`,
   100 by default):** graph LNS stops a neighbourhood's tree search after
-  that many LP solves without a new incumbent (see dispatch.md); the C++
+  that many LP solves without a new incumbent (see graph-lns.md); the C++
   runs it to the node limit. The oracle sets it to 0 for crest.
 - **A gap that is nearly closed (`mip_heuristic_min_gap_ratio`, 1.1 by
   default):** no root reduced cost, RENS or RINS heuristic while the gap
-  is at most that many times the target gap (see dispatch.md). The
+  is at most that many times the target gap (see graph-lns.md). The
   oracle sets it to 0 for crest.
 - **Further deep searches at the root (`mip_graph_lns_deep_rounds`, on
   by default):** after graph LNS's deep search at the root, further ones
-  while the gap is open and each closes 1% of it (see dispatch.md); the
+  while the gap is open and each closes 1% of it (see graph-lns.md); the
   C++ goes on to the sub-MIP heuristics and the tree after one. The
   oracle sets it to false for crest.
 - **The refactorization clock (`mip_lp_refactor_clock`, on by
@@ -172,7 +172,7 @@ unless it is anonymized.
   again in in-order reductions (`d += x[i]*y[i]`): the first n/block*block
   terms are rounded products, the tail is fused (see
   `ipx::utils::dot_blocked`); check each call site in the final library.
-- **x86_64.** Production runs on x86_64, where the default C++ build has no
+- **x86_64.** The main target is x86_64, where the default C++ build has no
   FMA instructions and clang fuses nothing (and the blocked reductions are
   then plain in-order sums). So write every mirrored FMA as
   `x.mul_add_c(a, b)` (util/fma.rs): `mul_add` on aarch64 and on x86_64
@@ -180,7 +180,7 @@ unless it is anonymized.
   paths), `x * a + b` elsewhere or with `no_fma`. A test rejects raw `mul_add`. Check x86_64 paths with
   `-DCMAKE_OSX_ARCHITECTURES=x86_64 -DHIGHS_RUST_TARGET=x86_64-apple-darwin`
   builds under Rosetta (`bench/perf.py` on both).
-- **gcc / libstdc++.** Production builds the C++ with gcc, whose libstdc++
+- **gcc / libstdc++.** The reference C++ build is gcc's, whose libstdc++
   differs from libc++ where results depend on the standard library: heap
   and partial_sort tie orders, std::tuple layout (hashed keys),
   uniform_int_distribution, unordered container order. Anything that

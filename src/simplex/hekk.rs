@@ -911,7 +911,7 @@ pub fn initialise_partitioned_rowwise_matrix(e: &mut EkkView, x: &CHekk) {
 thread_local! {
     /// factor_solve_error's dense work arrays, kept zero between calls:
     /// it runs at every rebuild, and allocating them anew (num_row and
-    /// num_tot entries) cost ~1% of the dispatch MIPs
+    /// num_tot entries) cost ~1% of a MIP with many short LP solves
     static SOLVE_ERROR_WORK: std::cell::RefCell<(Vec<bool>, Vec<f64>)> =
         const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
 }

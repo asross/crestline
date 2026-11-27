@@ -5,7 +5,7 @@
 #   bench/ec2_runner.sh ls                    list running bench instances
 #   bench/ec2_runner.sh down                  terminate all bench instances
 #
-# Then run bench-std / bench-dispatch with archs=ec2 and shards=N. Each
+# Then run bench-std / bench-paired with archs=ec2 and shards=N. Each
 # instance registers a just-in-time runner (label crest-ec2) that takes one
 # job and exits; the instance then shuts down, which terminates it. A
 # shutdown timer at boot caps every instance at HOURS whatever happens.
