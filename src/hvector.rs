@@ -146,8 +146,8 @@ impl HVec<'_> {
 /// Its buffers come from, and on drop go back to, a small per-thread pool:
 /// the solvers set up their work vectors per solve (and per call of e.g.
 /// computeDual), as in the C++, and allocating and zeroing them anew (41
-/// bytes per entry) cost several percent of the dispatch MIPs' many short
-/// LP solves. A vector goes back cleared (HVector::clear, on which the
+/// bytes per entry) cost several percent of a MIP's many short LP
+/// solves. A vector goes back cleared (HVector::clear, on which the
 /// solvers rely between uses anyway), and the solves leave cwork (the
 /// marks of the hyper-sparse solve) zero, so a reused vector is
 /// indistinguishable from a new one.

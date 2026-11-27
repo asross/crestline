@@ -1,8 +1,9 @@
 # Differential fuzzing for wrong answers (docs/benchmarks.md, "Fuzzing";
 # bench/fuzz.py): crest against the latest HiGHS release and SCIP on random
 # small MIPs, HiGHS's check/instances, easy MIPLIB 2017 collection models and
-# perturbed private dispatch models (asross/crestline-dispatch, read by a
-# deploy key; perturbed in the runner's temp directory, never uploaded). Run
+# perturbed models of a private set (secrets PRIVATE_SUITE_REPO and
+# PRIVATE_SUITE_KEY; perturbed in the runner's temp directory, never
+# uploaded, and named by a hash). Run
 # by hand (workflow_dispatch) or by pushing a branch fuzz-run/*. Logs and
 # results are public: names, seeds, options, statuses, objectives, bounds and
 # times only. Results: the fuzz-results artifact and the run summary.
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       sources:
-        description: "bench/fuzz.py sources (random:2000,check,miplib,dispatch:6)"
+        description: "bench/fuzz.py sources (random:2000,check,miplib,private:6)"
       shards:
         description: "Runners per architecture (40)"
       archs:
@@ -22,7 +23,7 @@ on:
         description: "crest git ref (this commit)"
 
 env:
-  SOURCES: "${{ inputs.sources || 'random:2000,check,miplib,dispatch:6' }}"
+  SOURCES: "${{ inputs.sources || 'random:2000,check,miplib,private:6' }}"
   SHARDS: "${{ inputs.shards || '40' }}"
   ARCHS: "${{ inputs.archs || 'x64' }}"
   CREST_REF: "${{ inputs.crest_ref || github.sha }}"
@@ -99,12 +100,12 @@ jobs:
           pip install -q numpy highspy pyscipopt
           git clone -q --depth 1 --branch "$TAG" --filter=blob:none --sparse https://github.com/ERGO-Code/HiGHS hsrc
           git -C hsrc sparse-checkout set check/instances
-      - if: contains(env.SOURCES, 'dispatch')
+      - if: contains(env.SOURCES, 'private')
         uses: actions/checkout@v5
         with:
-          repository: asross/crestline-dispatch
-          ssh-key: ${{ secrets.DISPATCH_DEPLOY_KEY }}
-          path: dispatch
+          repository: ${{ secrets.PRIVATE_SUITE_REPO }}
+          ssh-key: ${{ secrets.PRIVATE_SUITE_KEY }}
+          path: private
       - if: contains(env.SOURCES, 'miplib')
         uses: actions/cache@v4
         with:
@@ -114,9 +115,10 @@ jobs:
           SHARD: ${{ matrix.shard }}
           ARCH: ${{ matrix.arch }}
         run: |
+          export FUZZ_SCALE_ROWS=$(cat private/fuzz_scale_rows.txt 2>/dev/null)
           python3 bench/fuzz.py run results-$ARCH-$SHARD.jsonl --crest bins/crest --highs highs/bin/highs \
             --sources "$SOURCES" --shard "$SHARD/$SHARDS" --check-dir hsrc/check/instances \
-            --dispatch-dir dispatch/instances --tmp "$RUNNER_TEMP/fuzz"
+            --private-dir private/instances --tmp "$RUNNER_TEMP/fuzz"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

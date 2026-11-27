@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """Differential fuzzing: crest against the HiGHS release and SCIP, for wrong answers.
 
-  fuzz.py run OUT.jsonl --crest BIN --highs BIN [--sources random:2000,check,miplib,dispatch:6]
-      [--check-dir DIR] [--dispatch-dir DIR] [--shard I/N] [--cache inst] [--tmp DIR]
+  fuzz.py run OUT.jsonl --crest BIN --highs BIN [--sources random:2000,check,miplib,private:6]
+      [--check-dir DIR] [--private-dir DIR] [--shard I/N] [--cache inst] [--tmp DIR]
   fuzz.py report RES.jsonl...
-  fuzz.py make SOURCE KEY OUT.mps [--check-dir DIR] [--dispatch-dir DIR] [--cache inst]
-      one job's model, for triage (a dispatch one stays local: it is private)
+  fuzz.py make SOURCE KEY OUT.mps [--check-dir DIR] [--private-dir DIR] [--cache inst]
+      one job's model, for triage (a private one stays local)
   fuzz.py selftest
 
 Sources (one job = one model):
   random:N    N random small MIPs (seed = key): knapsacks, set covers, big-M fixed
               charge, general MIPs with coefficients over 1e-9..1e6 and bounds to 1e6,
-              and general MIPs scaled like the dispatch models, with big-M rows
+              and general MIPs with coefficients over 3e-3..1e2, with big-M rows
   check       the .mps models of HiGHS's check/instances (--check-dir), less QPs and NaN data
   miplib      the MIPLIB 2017 collection instances tagged easy, <= 20k nonzeros (249)
-  dispatch:N  N perturbations per private dispatch model (--dispatch-dir/*.mps.gz):
-              costs scaled by 1 +- 3%, bounds loosened 0-3%, init SOC down 0-3%, 3 seeds in 4
-              truncate the horizon (time-indexed names) to 30-100% (perturb)
+  private:N   N perturbations per model of a private set (--private-dir/*.mps.gz), each
+              named by a hash of its file name: costs scaled by 1 +- 3%, bounds loosened
+              0-3%, the sides of the rows named by FUZZ_SCALE_ROWS (a regex) down 0-3%,
+              3 seeds in 4 truncate the horizon (time-indexed names) to 30-100% (perturb)
 On each model: crest with default options and with one variant drawn from the key
 (VARIANTS), the HiGHS release and SCIP, at mip_rel_gap 0 (random, check) or 1e-6,
 time limit TL by source. A solution is evidence against another solver only if it is
@@ -34,7 +35,7 @@ Results hold names, seeds, options, statuses, objectives, bounds, violation size
 times only, never model contents or solution values: models are made in --tmp and
 deleted after each job.
 """
-import argparse, glob, json, os, re, subprocess, sys, time, zlib
+import argparse, glob, hashlib, json, os, re, subprocess, sys, time, zlib
 import numpy as np, highspy
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import std
@@ -72,9 +73,14 @@ chromaticindex32-8 assign1-5-8 control20-5-10-5 control30-3-2-3 binkar10_1 pg5_3
 VARIANTS = ['presolve=off', 'random_seed=1', 'random_seed=7', 'threads=2', 'mip_detect_symmetry=false',
             'presolve=off random_seed=3',
             'mip_graph_lns_cost_perturbation=true mip_root_lp_devex_density=inf mip_symmetry_static_orbitopes=false mip_lp_scaling=true mip_graph_lns_flip_first=false mip_graph_lns_flip_memory=false mip_graph_lns_stall_nodes=0 mip_heuristic_min_gap_ratio=0 mip_lp_refactor_clock=false mip_graph_lns_deep_rounds=false']
-TL = dict(random=20, check=60, miplib=60, dispatch=90)
-GAP = dict(random=0, check=0, miplib=1e-6, dispatch=1e-6)
+TL = dict(random=20, check=60, miplib=60, private=90)
+GAP = dict(random=0, check=0, miplib=1e-6, private=1e-6)
 NOSOL = ('infeasible', 'unbounded', 'infeasible_or_unbounded')
+
+
+def private(a):
+    """the private models: a hash of the file name (all that results and logs show of it) -> path"""
+    return {'p' + hashlib.sha1(os.path.basename(f)[:-7].encode()).hexdigest()[:6]: f for f in glob.glob(f'{a.private_dir}/*.mps.gz')}
 
 
 def jobs(a):
@@ -87,8 +93,8 @@ def jobs(a):
             js += [('check', f[:-4]) for f in sorted(os.listdir(a.check_dir)) if f.endswith('.mps')]
         elif src == 'miplib':
             js += [('miplib', m) for m in MIPLIB]
-        elif src == 'dispatch':
-            js += [('dispatch', f'{os.path.basename(f)[:-7]}#{k}') for f in sorted(glob.glob(f'{a.dispatch_dir}/*.mps.gz')) for k in range(int(n or 4))]
+        elif src == 'private':
+            js += [('private', f'{h}#{k}') for h in sorted(private(a)) for k in range(int(n or 4))]
         else:
             sys.exit(f'unknown source {src}')
     return js
@@ -153,7 +159,7 @@ def rand_model(seed, out):
             if r.random() < .3:
                 row[2][int(r.integers(n))] = float(r.choice([-1, 1]) * lu(-9, -6))
     else:  # general MIP, coefficients over 1e-9..1e6; family 4 stresses tiny coefficients on huge bounds,
-        # family 5 is scaled like the dispatch models (coefficients 3e-3..1e2, no tiny ones) with big-M rows
+        # family 5 has moderate coefficients (3e-3..1e2, no tiny ones) with big-M rows
         n, m = r.integers(8, 40), r.integers(4, 30)
         big = 6 if fam == 4 else 3
         kind = r.integers(0, 4, n)  # binary, small int, wide int, continuous
@@ -192,10 +198,11 @@ def tindex(name):
 
 
 def perturb(src, seed, out):
-    """a dispatch model: costs scaled by 1 +- 3%; continuous column bounds and the bounds of inequalities
-    with a continuous column loosened by 0-3%; init-SOC rows scaled by 0.97-1. 3 seeds in 4 truncate the
-    horizon, dropping the columns past a cut, every row on them, and columns left in no row that would be
-    unbounded. All but the SOC change relax the model."""
+    """a private model: costs scaled by 1 +- 3%; continuous column bounds and the bounds of inequalities
+    with a continuous column loosened by 0-3%; the rows whose names match FUZZ_SCALE_ROWS (a regex in
+    the environment, none if unset) scaled by 0.97-1. 3 seeds in 4 truncate the horizon, dropping the
+    columns past a cut, every row on them, and columns left in no row that would be unbounded. All but
+    the row scaling relax the model."""
     r = np.random.default_rng(seed)
     h = highspy.Highs()
     h.setOptionValue('output_flag', False)
@@ -207,7 +214,8 @@ def perturb(src, seed, out):
     A = lp.a_matrix_  # column-wise after readModel
     cols, rows = np.repeat(np.arange(n), np.diff(A.start_)), np.asarray(A.index_, dtype=np.int64)
     rl, ru, cl, cu = (np.array(v) for v in (lp.row_lower_, lp.row_upper_, lp.col_lower_, lp.col_upper_))
-    soc = np.array(['init_soc' in s for s in lp.row_names_], bool) if len(lp.row_names_) else np.zeros(m, bool)
+    pat = os.environ.get('FUZZ_SCALE_ROWS')
+    scaled = np.array([bool(re.search(pat, s)) for s in lp.row_names_], bool) if pat and len(lp.row_names_) else np.zeros(m, bool)
     cont = np.zeros(m, bool)
     cont[rows[~isint[cols]]] = True
     er = np.where(cont & (rl < ru), r.uniform(0, .03, m), 0)  # balances stay balanced, integer rows integral
@@ -215,8 +223,8 @@ def perturb(src, seed, out):
     fin = lambda v: np.where(np.abs(v) < INF, v, 0)
     loosen = lambda v, e, sign: np.where(np.abs(v) < INF, fin(v) + sign * np.abs(fin(v)) * e, v)
     rl, ru = loosen(rl, er, -1), loosen(ru, er, 1)
-    g = 1 - r.uniform(0, .03, int(soc.sum()))
-    rl[soc], ru[soc] = rl[soc] * g, ru[soc] * g
+    g = 1 - r.uniform(0, .03, int(scaled.sum()))
+    rl[scaled], ru[scaled] = rl[scaled] * g, ru[scaled] * g
     h.changeColsCost(n, np.arange(n, dtype=np.int32), np.array(lp.col_cost_) * f(n, .03))
     h.changeRowsBounds(m, np.arange(m, dtype=np.int32), rl, ru)
     h.changeColsBounds(n, np.arange(n, dtype=np.int32), loosen(cl, ec, -1), loosen(cu, ec, 1))
@@ -244,8 +252,9 @@ def make(src, key, out, a):
         return f'{a.check_dir}/{key}.mps', None
     if src == 'miplib':
         return std.fetch(f'{std.MIPLIB}/WebData/instances/{key}.mps.gz', f'{a.cache}/{key}.mps.gz'), std.solu(a.cache).get(key)
-    nm, _, k = key.partition('#')
-    perturb(f'{a.dispatch_dir}/{nm}.mps.gz', zlib.crc32(nm.encode()) + int(k), out)
+    h, _, k = key.partition('#')
+    f = private(a)[h]
+    perturb(f, zlib.crc32(os.path.basename(f)[:-7].encode()) + int(k), out)
     return out, None
 
 
@@ -357,7 +366,7 @@ def flags(x, others, s, known):
 
 
 def run(a):
-    for k in ('crest', 'highs', 'check_dir', 'dispatch_dir', 'cache'):  # the solvers run in --tmp
+    for k in ('crest', 'highs', 'check_dir', 'private_dir', 'cache'):  # the solvers run in --tmp
         setattr(a, k, os.path.abspath(getattr(a, k)))
     os.makedirs(a.cache, exist_ok=True)
     tmp = os.path.abspath(a.tmp)
@@ -369,10 +378,10 @@ def run(a):
         for src, key in js:
             try:
                 job(a, src, key, tmp, out)
-            except Exception as e:  # dispatch: the type only, its names are private
+            except Exception as e:  # a private model: the type only
                 import traceback
                 print(f'{src} {key}: harness error {type(e).__name__}', flush=True)
-                if src != 'dispatch':
+                if src != 'private':
                     traceback.print_exc(file=sys.stdout)
 
 
@@ -399,7 +408,7 @@ def job(a, src, key, tmp, out):
         c.update(source=src, key=key, opts=opts, sense=s, refs=refs, twin=twin, flags=flags(c, refs, s, known),
                  twin_flags=flags(twin, [o for o in refs + [c] if o is not twin], s, known),
                  notes=[f'{q["solver"]}:{x}' for q in refs for x in flags(q, [o for o in refs + [c] if o is not q], s, known)])
-        if src == 'dispatch':  # private: no solver output
+        if src == 'private':  # no solver output
             for q in [c, twin] + refs:
                 q.pop('err', None)
         out.write(json.dumps(c) + '\n')
@@ -450,7 +459,7 @@ def selftest():
     assert flags(q('timelimit', 12.0, 10.5), [], 1, ('opt', 10.0)) == ['DUAL_PAST_OPT(5.0e-02)']
     assert flags(q('optimal', 10.0, 10.0, False), [], 1, None) == ['BAD_SOLUTION']
     assert flags(q('error', None, None), [], 1, None) == ['CRASH']
-    assert tindex('soc(train1_bank2_mod3_17)') == 17 and tindex('c_u_x(5)_') == 5 and tindex('residual_val(train1_bank1_mod2)') is None
+    assert tindex('x(a1_b2_c3_17)') == 17 and tindex('c_u_x(5)_') == 5 and tindex('y(a1_b1_c2)') is None
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         for seed in range(10):
@@ -484,7 +493,7 @@ if __name__ == '__main__':
     m.add_argument('out')
     for p in (r, m):
         p.add_argument('--check-dir', default='check/instances')
-        p.add_argument('--dispatch-dir', default='dispatch/instances')
+        p.add_argument('--private-dir', default='private/instances')
         p.add_argument('--cache', default='inst')
         p.add_argument('--tmp', default=os.environ.get('RUNNER_TEMP', '/tmp') + '/fuzz')
     p = sp.add_parser('report')

@@ -1,2 +1,4 @@
 target*/
 Highs.log
+# a checkout of a private instance set (bench/paired.py, bench/fuzz.py)
+/private/

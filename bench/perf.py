@@ -2,6 +2,9 @@
 
   HIGHS_DIR=<HiGHS checkout> python3 bench/perf.py CPP_HIGHS CREST [--reps N] [--miplib DIR]
 
+PRIVATE_MODELS in the environment adds one or two models of your own (.mps):
+the first as a MIP, the second for the root, relaxation and reading rows.
+
 Runs each case alternately with both binaries (single thread), takes the
 minimum cycles (`/usr/bin/time -l`), checks that the two solves report the
 same path (iterations, nodes, objective, status) and prints a Markdown table
@@ -12,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(os.environ["HIGHS_DIR"])
 CHECK = ROOT / "check" / "instances"
-DISPATCH = Path(os.environ.get("DISPATCH_DIR", ROOT / "dispatch_milp_2026_09_30"))
+PRIVATE = [Path(p) for p in os.environ.get("PRIVATE_MODELS", "").split()]
 
 def cases(miplib):
     mip = {"mip_rel_gap": 0.01}
@@ -20,28 +23,28 @@ def cases(miplib):
     c = []
     for name in ["air05", "neos17", "nu25-pr12", "neos-911970"]:
         c.append(("MIP", name, miplib / f"{name}.mps.gz", mip))
-    c.append(("MIP", "dispatch lambda_080458", DISPATCH / "lambda_20260930_080458_22776806.mps", mip))
-    c.append(("MIP", "dispatch 3c1b60d6 root", DISPATCH / "lambda_20260930_142050_3c1b60d6.mps",
-              {**mip, "mip_max_nodes": 1}))
+    pa, pb = (PRIVATE + [Path("/nonexistent")] * 2)[:2]
+    c.append(("MIP", "private A", pa, mip))
+    c.append(("MIP", "private B root", pb, {**mip, "mip_max_nodes": 1}))
     for name in ["25fv47", "80bau3b", "greenbea", "perold", "stair"]:
         c.append(("LP dual simplex", name, CHECK / f"{name}.mps", lp))
         c.append(("LP primal simplex", name, CHECK / f"{name}.mps", {**lp, "simplex_strategy": 4}))
     rel = {"solve_relaxation": "true"}
     for name in ["air04", "rail507", "co-100"]:
         c.append(("LP dual simplex", f"{name} relaxation", miplib / f"{name}.mps.gz", rel))
-    c.append(("LP dual simplex", "dispatch 3c1b60d6 relaxation", DISPATCH / "lambda_20260930_142050_3c1b60d6.mps", rel))
+    c.append(("LP dual simplex", "private B relaxation", pb, rel))
     for name in ["greenbea", "80bau3b"]:
         c.append(("IPM (IPX)", name, CHECK / f"{name}.mps", {**lp, "solver": "ipm"}))
     for name in ["rail507", "co-100"]:
         c.append(("IPM (IPX)", f"{name} relaxation", miplib / f"{name}.mps.gz", {**rel, "solver": "ipm"}))
-    c.append(("IPM (IPX)", "dispatch 3c1b60d6 relaxation", DISPATCH / "lambda_20260930_142050_3c1b60d6.mps", {**rel, "solver": "ipm"}))
+    c.append(("IPM (IPX)", "private B relaxation", pb, {**rel, "solver": "ipm"}))
     for name in ["25fv47", "greenbea", "stair"]:
         c.append(("PDLP", name, CHECK / f"{name}.mps", {**lp, "solver": "pdlp", "pdlp_iteration_limit": 20000}))
     read = {"time_limit": 0}
     for name in ["co-100", "neos-5052403-cygnet"]:
         c.append(("Read model (time_limit 0)", f"{name}.mps.gz", miplib / f"{name}.mps.gz", read))
-    c.append(("Read model (time_limit 0)", "dispatch 3c1b60d6.mps", DISPATCH / "lambda_20260930_142050_3c1b60d6.mps", read))
-    c.append(("Read model (time_limit 0)", "dispatch 3c1b60d6.lp", DISPATCH / "lambda_20260930_142050_3c1b60d6.lp", read))
+    c.append(("Read model (time_limit 0)", "private B .mps", pb, read))
+    c.append(("Read model (time_limit 0)", "private B .lp", pb.with_suffix(".lp"), read))
     # builds without zlib: plain .mps next to (or instead of) the .mps.gz
     c = [(g, n, i.with_suffix("") if not i.exists() and i.suffix == ".gz" else i, o) for g, n, i, o in c]
     return [x for x in c if x[2].exists()]

@@ -74,7 +74,7 @@ satisfies every row exactly (checked by fixing its integers and
 re-solving the LP to 1e-10, or by enumeration). In 3000 random models
 (500 of each family, 2 option settings each): 74, 88 and 22 flagged
 solves in the three tiny-coefficient families; none in knapsacks and set
-covers; 5 in the family scaled like the dispatch models, all of them
+covers; 5 in the family with moderate coefficients (3e-3..1e2), all of them
 feasible only within tolerance (in exact arithmetic the other solver's
 point is infeasible). Two shrunk cases:
 
@@ -110,9 +110,9 @@ doubleton bound transfer; a solution rejected for an absolute row
 violation of 2.4e-6 on a row with side 8e5). Each place that divides a
 bound out of a row would need it.
 
-**Not seen on the dispatch models**: their coefficients lie in
-[5.7e-3, 1.1e2] and their sides below 2e3 (no wrong answer in 216
-perturbed dispatch models), so Crestline leaves this as HiGHS has it.
+**Not seen on the private suite** (docs/benchmarks.md): its coefficients
+lie in [5.7e-3, 1.1e2] and its sides below 2e3 (no wrong answer in 216
+perturbed models of it), so Crestline leaves this as HiGHS has it.
 
 ## Draft, not filed: objective propagation loops forever on an integer column with fractional fixed bounds
 
@@ -156,7 +156,7 @@ bounds. Only a user callback reaches it in HiGHS; we did not run it there.
 
 **What Crestline saw.** Its concurrent LNS helpers' solutions are taken at
 the same place (`sync_concurrent_lns`): from 3 threads on, 1 solve in
-64-128 of the dispatch model tick_1018_0420 ended in "pop from an empty
+64-128 of one model of the private suite ended in "pop from an empty
 node queue", the queue holding one suboptimal node.
 
 **Crestline's fix.** The root-node install checks the loop condition again

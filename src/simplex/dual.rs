@@ -545,7 +545,7 @@ impl<'a> Dual<'a> {
         // more than an iteration (a CHUZC of thousands of passes over a
         // dense row, each rejecting one pivot of a badly scaled row), so
         // a hundred end a solve that has an iteration limit (on the
-        // dispatch suite no solve has more than 50; where a solve has
+        // private suite no solve has more than 50; where a solve has
         // thousands, it is an infeasible dive LP of graph LNS). A solve
         // without one (the root LP) goes on: it can need hundreds
         if (self.failed_proofs >= 100 && x.simplex_iteration_limit < i32::MAX)
@@ -1383,8 +1383,8 @@ impl<'a> Dual<'a> {
         } else if self.edge_weight_mode == EW_DEVEX && self.density_switch_iteration > 0 {
             // Crestline: back to DSE (from the Devex weights, as later
             // solves start) once Devex has run as many iterations as there
-            // are rows. Where Devex pays (the dense B^-1 of dispatch
-            // models) the whole LP takes 0.5-1.2 iterations per row; where
+            // are rows. Where Devex pays (a dense B^-1, as with long
+            // equality chains) the whole LP takes 0.5-1.2 iterations per row; where
             // it does not (triptim1) Devex runs ten
             let local_iteration_count = self.x.iteration_count.get() - self.x.control_iteration_count0;
             if local_iteration_count - self.density_switch_iteration > self.num_row as i32 {
@@ -1406,7 +1406,7 @@ impl<'a> Dual<'a> {
         // Firstly consider switching on the basis of NLA cost
         let row_dse_density = *self.e.row_dse_density;
         // Crestline: on the density of the DSE FTRAN alone. Where B^-1 is
-        // dense (equality chains of dispatch models), every solve is
+        // dense (long equality chains), every solve is
         // dense, so the relative test below does not fire, but the DSE
         // FTRAN (on a dense row of B^-1) is the dearest of them
         if x.allow_dual_steepest_edge_to_devex_switch && row_dse_density > x.dse_to_devex_density {

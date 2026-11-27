@@ -106,11 +106,11 @@ impl LpS {
         s.set_option("full_lp_kkt_check", OptValue::Bool(false));
         // Crestline: the LPs of a MIP of at least 10000 rows (as given,
         // before presolve) are solved unscaled (mip_lp_scaling). Equilibration scales rows and columns
-        // with many tiny coefficients (some dispatch models) up to where
+        // with many tiny coefficients (some models of the private suite) up to where
         // the tiny entries make bases near singular (pivot rows of 1e16,
         // CHUZC passes by the thousand, 900 "possibly dual unbounded"
-        // rebuilds in one root LP); the root LPs of the other large
-        // dispatch models are faster unscaled too. Below 10000 rows
+        // rebuilds in one root LP); the root LPs of its other large
+        // models are faster unscaled too. Below 10000 rows
         // (neos-957323, neos-960392) scaling pays more often
         // (docs/performance.md)
         if !o.mip_lp_scaling && ms.num_row() >= 10000 {
@@ -657,8 +657,8 @@ impl LpS {
             // A first root LP of at least 10000 rows may switch from DSE to
             // Devex where the DSE FTRAN is dense (later solves start from
             // the weights it leaves). Below 10000 rows the switch saves
-            // little and the dispatch suite gets slightly slower
-            // (dm_small_windlull 1.22x)
+            // little and the private suite gets slightly slower (one
+            // model 1.22x)
             let devex_switch =
                 !valid_basis && !ms.submip && o.mip_root_lp_devex_density < f64::INFINITY && self.num_rows() >= 10000;
             if devex_switch {

@@ -1,21 +1,23 @@
-# Paired A/B benchmark on the dispatch MILPs (private repo
-# asross/crestline-dispatch, read by a deploy key). Run by hand
-# (workflow_dispatch, inputs below), or by pushing a branch bench-dispatch/*
-# whose commit sets the defaults in `env`. Seeds x instances are sharded over
-# runners; on each runner every (instance, seed) runs all configs back to
-# back, so a pair sees the same CPU. Results: the dispatch-results artifact
-# (JSONL) and the run summary (bench/dispatch.py report). Logs are public:
-# only names, objectives, gaps and times print.
-name: bench-dispatch
+# Paired A/B benchmark of crest builds and options on a set of MIPs: a
+# private repository's instances/*.mps.gz (secrets PRIVATE_SUITE_REPO and
+# PRIVATE_SUITE_KEY, a read-only deploy key), or the public MIPLIB models
+# below (instance globs miplib/*.mps.gz). Run by hand (workflow_dispatch,
+# inputs below), or by pushing a branch bench-paired/* whose commit sets the
+# defaults in `env`. Seeds x instances are sharded over runners; on each
+# runner every (instance, seed) runs all configs back to back, so a pair
+# sees the same CPU. Results: the paired-results artifact (JSONL) and the
+# run summary (bench/paired.py report). Logs are public: only objectives,
+# gaps and times print, and a private model goes by a hash of its name.
+name: bench-paired
 on:
   push:
-    branches: ['bench-dispatch/**', 'bench-screen/**']
+    branches: ['bench-paired/**', 'bench-screen/**']
   workflow_dispatch:
     inputs:
       configs:
         description: "Configs, ';'-separated: NAME[@GIT_REF]: option=value ... (the first is the base)"
       instances:
-        description: "Instance globs under instances/, space-separated (all); miplib/*.mps.gz: the public MIPLIB UC models"
+        description: "Instance globs under the private instances/, space-separated (all); miplib/*.mps.gz: the public MIPLIB UC models"
       seeds:
         description: "Seeds (0-15)"
       time_limit:
@@ -31,16 +33,15 @@ on:
       parallel:
         description: "Pairs at once on a runner, of 4 vCPUs (1)"
       screen:
-        description: "Screening run: the 10 screen instances, 8 seeds, 120 s, 8 runners per arch, unless set above (bench-screen/* branches too)"
+        description: "Screening run: the private repository's screen.txt instances, 8 seeds, 120 s, 8 runners per arch, unless set above (bench-screen/* branches too)"
         type: boolean
-      starts:
-        description: "MIP starts for configs with read_solution_file=@: sibling or shift (none; bench/dispatch.py starts)"
 
 env:
   CONFIGS: "${{ inputs.configs || 'main@main: ; head:' }}"
-  # screen: the motivating ticks plus the dispatch models most sensitive to
-  # past changes; a candidate passes it before a full run
-  INSTANCES: "${{ inputs.instances || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && 'hard_10-03_1340* diverse_10-01_0052* lambda_* dm_full_pert_s1_ramp* dm_full_randsoc_ramp* dm_medium_pert_s1_ramp* dm_medium_randsoc_noramp* dm_small_pert_s1_ramp*' || '*.mps.gz' }}"
+  # screen: the instances most sensitive to past changes (the globs of
+  # screen.txt in the private repository); a candidate passes it before a
+  # full run
+  INSTANCES: "${{ inputs.instances || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '@screen' || '*.mps.gz' }}"
   SEEDS: "${{ inputs.seeds || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '0-7' || '0-15' }}"
   TIME_LIMIT: "${{ inputs.time_limit || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '120' || '180' }}"
   THREADS: "${{ inputs.threads || '1' }}"
@@ -48,7 +49,6 @@ env:
   ARCHS: "${{ inputs.archs || 'x64,arm64' }}"
   SHARDS: "${{ inputs.shards || (inputs.screen || startsWith(github.ref, 'refs/heads/bench-screen/')) && '8' || '16' }}"
   PARALLEL: "${{ inputs.parallel || '1' }}"
-  STARTS: "${{ inputs.starts || '' }}"
 
 jobs:
   plan:
@@ -117,38 +117,33 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/checkout@v5
         with:
-          repository: asross/crestline-dispatch
-          ssh-key: ${{ secrets.DISPATCH_DEPLOY_KEY }}
-          path: dispatch
+          repository: ${{ secrets.PRIVATE_SUITE_REPO }}
+          ssh-key: ${{ secrets.PRIVATE_SUITE_KEY }}
+          path: private
       # public MIPLIB 2017 unit commitment and energy models (MIPFEAS):
       # instance globs miplib/*.mps.gz
       - if: contains(env.INSTANCES, 'miplib/')
         run: |
-          mkdir -p dispatch/instances/miplib
+          mkdir -p miplib
           for m in uccase9 unitcal_7 irish-electricity buildingenergy; do
-            curl -sfL --retry 3 -o dispatch/instances/miplib/$m.mps.gz https://miplib.zib.de/WebData/instances/$m.mps.gz
+            curl -sfL --retry 3 -o miplib/$m.mps.gz https://miplib.zib.de/WebData/instances/$m.mps.gz
           done
       - uses: actions/download-artifact@v4
         with:
           pattern: crest-${{ matrix.arch }}-*
           path: bins
           merge-multiple: true
-      # the start files show the model: made here, in the runner's temp
-      # directory, and never uploaded
       - env:
           CFGS: ${{ needs.plan.outputs.cfgs }}
           SHARD: ${{ matrix.shard }}
           ARCH: ${{ matrix.arch }}
         run: |
           chmod +x bins/*/crest
-          inst=(); for g in $INSTANCES; do inst+=("dispatch/instances/$g"); done
-          if [ -n "$STARTS" ]; then
-            b=${CFGS%% *}; b=${b#*=}; b=${b%%,*}
-            python3 bench/dispatch.py starts "$RUNNER_TEMP/starts" "$b" --inst "${inst[@]}" $([ "$STARTS" = shift ] && echo --shift)
-          fi
-          python3 bench/dispatch.py run results-$ARCH-$SHARD.jsonl \
+          [ "$INSTANCES" = @screen ] && INSTANCES=$(tr '\n' ' ' < private/screen.txt)
+          inst=(); for g in $INSTANCES; do case $g in miplib/*) inst+=("$g");; *) inst+=("private/instances/$g");; esac; done
+          python3 bench/paired.py run results-$ARCH-$SHARD.jsonl \
             --cfg $CFGS --inst "${inst[@]}" --seeds "$SEEDS" --tl "$TIME_LIMIT" \
-            --threads "$THREADS" --gap "$GAP" --shard "$SHARD/$SHARDS" -j "$PARALLEL" --starts "$RUNNER_TEMP/starts"
+            --threads "$THREADS" --gap "$GAP" --shard "$SHARD/$SHARDS" -j "$PARALLEL"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -167,9 +162,9 @@ jobs:
           path: res
           merge-multiple: true
       - run: |
-          cat res/*.jsonl > dispatch-results.jsonl
-          python3 bench/dispatch.py report dispatch-results.jsonl --base ${{ needs.plan.outputs.base }} | tee -a "$GITHUB_STEP_SUMMARY"
+          cat res/*.jsonl > paired-results.jsonl
+          python3 bench/paired.py report paired-results.jsonl --base ${{ needs.plan.outputs.base }} | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: dispatch-results
-          path: dispatch-results.jsonl
+          name: paired-results
+          path: paired-results.jsonl

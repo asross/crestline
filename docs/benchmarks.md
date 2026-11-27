@@ -18,8 +18,8 @@ kept in `actions/cache`; none are committed.
 
 ## Solvers
 
-- **crest**, built from the given ref (`crest_ref`; x86-64-v3 on x86_64,
-  as on AWS Lambda);
+- **crest**, built from the given ref (`crest_ref`; x86-64-v3 on
+  x86_64);
 - **highs**: the static `highs` binary of the latest
   [HiGHS release](https://github.com/ERGO-Code/HiGHS/releases) (generic
   x86_64 build);
@@ -78,14 +78,14 @@ Locally:
 GitHub's free runners have 4 vCPUs (2 physical cores on x64). For 8+
 threads, `bench/ec2_runner.sh up N` starts N spot Graviton instances
 (c8g.2xlarge: 8 cores, about $0.10/h in us-east-2) as one-job runners;
-then run bench-std or bench-dispatch with `archs=ec2` and `shards=N`.
+then run bench-std or bench-paired with `archs=ec2` and `shards=N`.
 Builds stay on GitHub's arm64 runners. Each instance terminates after its
 job, and at most HOURS (6) after boot; `ls` and `down` list and terminate
 leftovers. A full MIPLIB run of three solvers at 8 threads is about 40
 instance-hours (about $4).
 
 For 1- and 2-thread runs, `up N c8g.large` (2 cores, about $0.02/h) is
-enough for dispatch, but not for MIPLIB: its 4 GB kills crest (exit -9,
+enough for the private suite, but not for MIPLIB: its 4 GB kills crest (exit -9,
 reported as `error`) on bab2, bab6, square47, savsched1, neos-3402454-bohle,
 neos-5114902-kasavu and both proteindesign models. Use c8g.xlarge (8 GB)
 for MIPLIB. Spot capacity for one type can run out mid-launch
@@ -101,14 +101,31 @@ and report on the concatenated JSONL files.
 A candidate change goes through two stages, and the full benchmark runs
 only for one that passes the first:
 
-| Stage | Dispatch (bench-dispatch) | Standard (bench-std) | Cost |
+| Stage | Private suite (bench-paired) | Standard (bench-std) | Cost |
 |---|---|---|---|
-| Screen | `screen` input, or a `bench-screen/*` branch: 10 instances (the three Lambda ticks, `hard_10-03_1340`, `diverse_10-01_0052` and the five `dm_*` models most sensitive to past changes), 8 seeds, 120 s, 8 runners per arch | `miplib-easy`, crest against main only | about 1/5 of a full run |
+| Screen | `screen` input, or a `bench-screen/*` branch: the 10 instances of the private repository's `screen.txt` (the hardest ones and those most sensitive to past changes), 8 seeds, 120 s, 8 runners per arch | `miplib-easy`, crest against main only | about 1/5 of a full run |
 | Full | all instances, 16 seeds, 180 s, 16 runners per arch, 1 and 2 threads (and 4 for changes to threads >= 3) | `miplib` (240), plus `lp` for LP changes | |
 
 Before either, screen locally on a few models by instruction count
 (`CRESTLINE_INSTR_CLOCK`). A screen that shows no gain, or a loss on any
-motivating tick, ends the experiment: record it in the docs and move on.
+of the hardest models, ends the experiment: record it in the docs and move
+on.
+
+The **private suite** is a set of scheduling MIPs of one application (36
+models: time-indexed on/off decisions coupled by chains of equalities
+over time), which graph LNS (docs/graph-lns.md) was built for. Its
+instances are not public. The `bench-paired` workflow
+(`bench/paired.py`) runs builds and option settings against each other
+on it, paired by instance and seed on the same runner, at `mip_rel_gap =
+0.01` with a 180 s limit and 16 seeds, on x86-64 and arm64; it reads the
+instances from a private repository (secrets `PRIVATE_SUITE_REPO` and
+`PRIVATE_SUITE_KEY`, checked out at `private/`, which is in
+`.gitignore`). Logs and results are public and show only objectives,
+gaps and times, each private model under a hash of its file name
+(`bench/paired.py names FILE...` prints the hashes). The same workflow
+runs public models (instance globs `miplib/*.mps.gz`: the MIPLIB unit
+commitment models uccase9, unitcal_7, irish-electricity,
+buildingenergy).
 
 ## Fuzzing for wrong answers
 
@@ -128,14 +145,15 @@ all-integer equality met to 2e-6).
 A flag on crest that its twin does not share is **crest-only**: a port bug
 or a path difference. A flag both share is inherited from HiGHS.
 
-Sources (`--sources`, default `random:2000,check,miplib,dispatch:6`):
+Sources (`--sources`, default `random:2000,check,miplib,private:6`):
 random small MIPs (knapsacks, set covers, big-M fixed charge, general MIPs
-with coefficients over 1e-9..1e6, and general MIPs scaled like the dispatch
-models), the `.mps` models of HiGHS's `check/instances`, the 249 MIPLIB
+with coefficients over 1e-9..1e6, and general MIPs with moderate
+coefficients, 3e-3..1e2), the `.mps` models of HiGHS's `check/instances`, the 249 MIPLIB
 2017 collection instances tagged easy with at most 20k nonzeros, and
-perturbed private dispatch models. A dispatch perturbation scales the costs
-by 1 +- 3%, loosens bounds by 0-3%, lowers the initial SOC by 0-3% and, in
-3 seeds of 4, truncates the horizon. It is made in the runner's temp
+perturbed models of the private suite. A perturbation scales the costs
+by 1 +- 3%, loosens bounds by 0-3%, scales the sides of the rows named by
+`FUZZ_SCALE_ROWS` down by 0-3% and, in 3 seeds of 4, truncates the
+horizon. It is made in the runner's temp
 directory and never uploaded. Logs and results hold names, keys, options,
 statuses, objectives, bounds, violation sizes and times only.
 
@@ -143,7 +161,7 @@ Run: Actions, fuzz, "Run workflow" (sources, shards, archs, crest ref), or
 push a branch `fuzz-run/*`. The report (run summary, artifact
 `fuzz-results`) counts solves and flags by source and lists the flagged
 models, crest-only first. To reproduce one: `bench/fuzz.py make SOURCE KEY
-model.mps` (a dispatch one stays local), then shrink it with
+model.mps` (a private one stays local), then shrink it with
 `bench/mipdd.sh`. Locally:
 
     python3 bench/fuzz.py run out.jsonl --crest target/release/crest \
@@ -159,7 +177,7 @@ on x64 and local runs on arm64):
 | random (local, polished evidence) | 3000 | 6000 | 187 | 0 |
 | check/instances | 64 | 128 | 0 | 0 |
 | MIPLIB collection, easy, <= 20k nonzeros | 245 | 490 | 7 | 3 |
-| perturbed dispatch | 216 | 432 | 0 | 0 |
+| perturbed private | 216 | 432 | 0 | 0 |
 
 Triage: the random flags shared with the HiGHS release are an inherited
 HiGHS weakness with tiny coefficients (docs/upstream.md); the crest-only
@@ -184,7 +202,7 @@ twin and for `check/instances`, so a flag that crest shares with HiGHS
 | random | 2000 | 4000 | 145 | 25 |
 | check/instances | 74 | 148 | 5 | 5 |
 | MIPLIB collection, easy, <= 20k nonzeros | 245 | 490 | 5 | 1 |
-| perturbed dispatch | 216 | 432 | 0 | 0 |
+| perturbed private | 216 | 432 | 0 | 0 |
 
 Triage:
 - check/instances: three reproducers of HiGHS bugs fixed after 1.15.1
@@ -212,8 +230,20 @@ Triage:
   has a negative coefficient and had the sign of its objective term
   wrong: keys 1784 and 536, which change only through the heuristic's
   incumbent and stay doubtful in 1.16.0, which gives 172.79 on 536 with
-  the heuristic off). These three are not in crest yet.
-- perturbed dispatch: none.
+  the heuristic off). Crest follows none of the three yet. Each of the
+  first two was applied alone, to crest and to HiGHS 1.15.1 (the same
+  answers), and all 4000 random solves were repeated. The `colPresolve`
+  change turns 11 solves from infeasible to optimal and 10 from a valid
+  optimum to infeasible or the time limit (keys 232, 718, 850, 1161,
+  1359, 1966: the same hazard met elsewhere, on four of them in 1.16.0
+  too), so it moves the weakness rather than removing it. PR #3332 alone
+  repairs key 1730 and takes key 112 to the references' value, but gives
+  3431.05 on key 782 where both releases find 3278.11: HiGHS at the merge
+  of #3332 still finds 3278.11, so on 1.15.1's code the fix lacks
+  something else made between the releases (PRs #3270 and #3437 touch
+  the same bookkeeping; not isolated yet). PR #3310 changes a heuristic
+  and needs its own measurement.
+- perturbed private: none.
 
 ## Baseline
 
@@ -307,7 +337,7 @@ Built with crest's flags (x86-64-v3 / LTO), HiGHS solves 1-7 more and is
 1-2.5% faster; crest stays ahead by 5-8 solved and 4-5% in time. The
 `highs-src` row at 1 thread was not run.
 
-**Dispatch** (all 36 instances, 8 seeds, 180 s, gap 1%; solved of 288 /
+**The private suite** (all 36 instances, 8 seeds, 180 s, gap 1%; solved of 288 /
 sgm time, shift 1 s; runs 41314262664, 41314264650, 41314266781 with main)
 
 | crest | arm64 1 | arm64 2 | arm64 4 | x64 1 | x64 2 | x64 4 |
@@ -336,11 +366,12 @@ and only the tree search is new. MIPLIB at 4 threads: +4 solved, sgm
 Rejected or not done:
 
 - Helpers on all logical CPUs: on the hyperthreaded x64 runners 3
-  helpers made the `dm_*` screen models 1.18-1.29x slower (time to 1%
+  helpers made the smaller screen models 1.18-1.29x slower (time to 1%
   1.19x; run 41315073863) while arm64 gained; hence the physical-core cap.
 - Helpers alone (no parallel tree search) at 4 threads: arm64 0.892
-  [0.861, 0.925] on dispatch (run 41369266138), nothing on MIPLIB; the
-  tree search adds MIPLIB's gain and does not cost dispatch (screen
+  [0.861, 0.925] on the private suite (run 41369266138), nothing on
+  MIPLIB; the tree search adds MIPLIB's gain and does not cost the private
+  suite (screen
   41351769764: arm64 6.88 -> 6.85 s, x64 6.95 -> 7.08 s).
 - Diversifying the helpers beyond their seeds (move types, LNS vs deep
   dive), a 3-way root race (dual, primal, IPX) and parallel strong
@@ -369,18 +400,18 @@ even), triptim1's root LP twice HiGHS's (below).
   1.23x -> 1.01x HiGHS 1.15.1's cycles on its path, crest's own path
   0.81 instructions; MIPLIB at 1 thread (run 41585275001 against
   41602570525): solved 94 -> 95 (arm64), 93 -> 93 (x64), cod105 0.96
-  (arm64); dispatch at 2 threads (run 41585277141, 16 seeds): arm64
+  (arm64); the private suite at 2 threads (run 41585277141, 16 seeds): arm64
   1.002, x64 1.003, solved 557 -> 557 / 554 -> 558.
 - **Root LP Devex switch only where the column FTRAN is sparse**
   (rejected): on triptim1 the switch (`mip_root_lp_devex_density`) doubles
   the root LP's iterations at every seed tried (147-161k against 70-74k);
-  the column FTRAN density there is 0.36 against the dispatch ramp and
-  lambda models' 0.02-0.08. Declining the switch once where it is over a
+  the column FTRAN density there is 0.36 against 0.02-0.08 on the private
+  suite's large models. Declining the switch once where it is over a
   quarter of the DSE density: triptim1 0.61, but neos-3402294-bobin (where
   the switch is crest's 1-thread win) went from 146-166 s to the time
   limit, satellites2-60-fs and istanbul-no-cutoff slower; MIPLIB 1 thread
   (run 41602573844) solved 94 -> 94 / 93 -> 92, both-solved 0.993 / 0.999;
-  dispatch 2 threads (run 41583812888) 0.994 / 1.000. The density at the
+  the private suite at 2 threads (run 41583812888) 0.994 / 1.000. The density at the
   switch does not tell triptim1 from bobin.
 - **Root sub-MIP (tbfp-network, decomp2, neos-960392)** (no porting
   divergence; robustness tweak rejected): the root RENS, `solveSubMip`
@@ -433,8 +464,8 @@ even), triptim1's root LP twice HiGHS's (below).
   worse than DSE in bobin's root LP too (14k iterations against 523),
   so a revert measured against DSE's rate before the switch also hits
   bobin (3x the pre-switch iterations: bobin 93 -> 151 s, 8/8 -> 6/8,
-  run 41758466364). Per row it separates: dispatch root LPs take
-  0.5-1.2 iterations per row in all, triptim1's Devex ten. triptim1
+  run 41758466364). Per row it separates: the private suite's root LPs
+  take 0.5-1.2 iterations per row in all, triptim1's Devex ten. triptim1
   root (M1, 1 thread) 939G -> 663G instructions (seed 1: 905G ->
   599G); 4 seeds (run 41763339279) bobin 88 s 8/8, satellites2-60-fs
   263 s 7/8. MIPLIB 1 thread (run 41769183228 against 41769176714):
@@ -442,12 +473,12 @@ even), triptim1's root LP twice HiGHS's (below).
   81 s arm64, 137 -> 93 s x64); solved 95 -> 95 (arm64), 98 -> 94 (x64,
   all near the limit on a slower runner: same-path time ratio 1.005);
   LP set (41769202066 against 41769195808) the same path everywhere.
-  Dispatch 2 threads, 16 seeds (run 41769214331): arm64 t1 1.001
+  The private suite at 2 threads, 16 seeds (run 41769214331): arm64 t1 1.001
   [0.999, 1.004], solved 558 -> 558; x64 0.999 [0.995, 1.002], 555 ->
-  556; the root LP traces of the dispatch models are unchanged (they
-  never revert). The per-instance t1 outliers (ovn_1148_g105 1.013,
-  dm_full_pert_s1_noramp 1.021) are inside a main-vs-main control's
-  spread (run 41799886659: up to 1.014, diverse solved 13 -> 12, 12 ->
+  556; the root LP traces of its models are unchanged (they
+  never revert). The per-instance t1 outliers (1.013 and 1.021) are
+  inside a main-vs-main control's
+  spread (run 41799886659: up to 1.014, one model solved 13 -> 12, 12 ->
   10).
 - **Second cost perturbation on a dual degenerate stall** (rejected,
   branch stall-reperturb): supportcase12's relaxation at seed 0 (409k
@@ -466,15 +497,16 @@ even), triptim1's root LP twice HiGHS's (below).
   rail01 57 s -> time limit (both archs) and kasavu (arm64); MIPLIB
   (41769189285) 15 paths change, 1.01 / 1.02 net of runner speed,
   wachplan and 30n20b8 solved -> time limit on both archs, ns1208400
-  29 -> 80 s, cod105 110 -> 150 s; dispatch neutral (it never fires
-  there). Perturbing 10x from the start (`dual_simplex_cost_perturbation_multiplier
+  29 -> 80 s, cod105 110 -> 150 s; the private suite neutral (it never
+  fires there). Perturbing 10x from the start (`dual_simplex_cost_perturbation_multiplier
   = 10`) takes supportcase12 to 46-53k at all four seeds (run
   41811157564) but changes every LP; not evaluated further.
 - **The MIP's LPs unscaled from 10000 rows** (kept, PR mip-lp-unscaled,
   `mip_lp_scaling`; docs/performance.md): rejected on the way there:
   equilibration that ignores entries below 1e-2..1e-6 of their row or
-  column maximum, or below 1e-3..1e-7 absolute (HTF root LP 92-181G
-  against 227G scaled and 43-81G unscaled); max-value scaling (93G);
+  column maximum, or below 1e-3..1e-7 absolute (the root LP of a model
+  with many tiny coefficients 92-181G against 227G scaled and 43-81G
+  unscaled); max-value scaling (93G);
   column factors capped so a bounded column keeps a scaled range of
   1e-4..1 (166-193G); `allowed_matrix_scale_factor` 3-14 (92-225G);
   dropping coefficients whose summed |a|(u-l) per row is below 1e-8..1e-6
@@ -500,19 +532,19 @@ even), triptim1's root LP twice HiGHS's (below).
   threads 13 -> 103 s locally). Its in-MIP root LP iterations per
   presolved row (main 2c6c50e, M1, 1 thread), unscaled against scaled:
   uccase12 1.61 against 0.35 (142k iterations, 88k rows). But the
-  dispatch models reach 0.41-1.01 unscaled (ovn_* 0.80-0.91, dm_small
-  up to 1.01), the HTF models 0.63-0.73, and other MIPLIB models go
+  private suite's models reach 0.41-1.01 unscaled (0.63-0.73 where
+  there are many tiny coefficients), and other MIPLIB models go
   higher in both settings: satellites2-60-fs 1.10 unscaled against 5.03
   scaled, physiciansched6-2 1.18 / 0.95, neos-933966 2.21 / 2.21,
   triptim1 7.30 / 6.63, neos-5052403-cygnet 12.1 / 15.7. A threshold
-  that spares the dispatch models (above 1.01) fires on uccase12 only
+  that spares the private suite (above 1.01) fires on uccase12 only
   after 89k or more of its 142k iterations, at most a quarter of the
   waste saved, and it also fires on triptim1, cygnet and neos-933966,
   where a scaled re-solve costs as much again for nothing. The largest
   primal infeasibility sum during the unscaled solve does not separate
-  them either (uccase12 4e12, g03_eta1_L133 2.5e9, lambda_080458 5e8,
-  satellites2-60-fs 3e8). ovn_0716_g158 (1 thread t1 1.19 with unscaled
-  LPs, run 41960555578): the ovn ticks are the one dispatch family
-  whose root LP takes more iterations unscaled (0.80-0.91 against
-  0.61-0.75 per row) and unscaled LPs lose on pure-LP instructions on
-  two of the five (ovn_0636 1.06, ovn_0652 1.23).
+  them either (uccase12 4e12, two private models 2.5e9 and 5e8,
+  satellites2-60-fs 3e8). One private model is slower with unscaled LPs
+  (1 thread t1 1.19, run 41960555578): its family of five is the one in
+  the suite whose root LP takes more iterations unscaled (0.80-0.91
+  against 0.61-0.75 per row), and unscaled LPs lose on pure-LP
+  instructions on two of the five (1.06 and 1.23).

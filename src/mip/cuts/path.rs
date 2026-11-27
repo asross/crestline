@@ -16,14 +16,14 @@ const K_HIGHS_TINY: f64 = 1e-14;
 /// Crestline: the aggregated row entries a call may pass to the cut
 /// generator, per nonzero of the LP; a call that reaches it stops, and
 /// the separator stays off, except at the root while the gap is wide
-/// (see `separate`). On the dispatch suite a call passes at most
-/// 41 per nonzero; on dispatch models with dense coupling rows (heater to
-/// HTF credits) 190-250, about 4 s a call and nearly all of each root cut
-/// round, for dense path cuts that slow the LP and the search
+/// (see `separate`). On the private suite (docs/graph-lns.md) a call
+/// passes at most 41 per nonzero; on models with dense coupling rows
+/// 190-250, about 4 s a call and nearly all of each root cut round, for
+/// dense path cuts that slow the LP and the search
 const WORK_PER_NONZERO: usize = 60;
 /// Crestline: a path stops once its aggregation has more entries than
 /// 100 plus this many average LP rows (in the spirit of SCIP's density
-/// limit on aggregations). On dispatch models with dense coupling rows,
+/// limit on aggregations). On models with dense coupling rows,
 /// the aggregations through them (30-130 average rows long) took 99% of
 /// a call's work and gave no cut; the cuts came from aggregations under
 /// 100 + 16 average rows. With the limit a call there costs 1-3% as much
@@ -95,10 +95,10 @@ impl PathSeparator {
 
     /// `continue_over_budget`: after a call stopped at the work limit, call
     /// again, from the row where it stopped (the root while the gap is
-    /// wide: on a gas-boiler dispatch model, 250 entries per nonzero and a
-    /// wide root gap, stopping for good left the root bound well short of
-    /// CPLEX's; on the heater-HTF models, gaps of
-    /// 1.5%, the dense cuts cost more than they gain)
+    /// wide: on one model with dense coupling rows, 250 entries per nonzero
+    /// and a wide root gap, stopping for good left the root bound well
+    /// short of CPLEX's; on others, with gaps of 1.5%, the dense cuts cost
+    /// more than they gain)
     pub fn separate(&mut self, lp: &mut SepaRound, cutgen_seed: u32, continue_over_budget: bool) {
         if self.over_budget && !continue_over_budget {
             return;

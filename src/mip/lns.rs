@@ -82,8 +82,8 @@ pub fn decision_cols(
 }
 
 /// Crestline: whether some decision column shares no row with another
-/// integer column (a boiler's on/off column, tied to the rest of the model
-/// only through its continuous fire). No breadth-first neighbourhood
+/// integer column (an on/off column tied to the rest of the model only
+/// through a continuous column). No breadth-first neighbourhood
 /// reaches such a column from the columns around it: only the flip search,
 /// and a seed that happens to be one, move it.
 pub fn has_isolated_cols(g: &Graph, integrality: &[u8], decision: &[i32]) -> bool {

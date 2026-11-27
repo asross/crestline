@@ -316,8 +316,8 @@ fn solve_matrix_t(
 }
 
 // The sparse solves (ftran_l, btran_l, solve_u_sparse, ftran_ft,
-// btran_ft) skip bounds checks: with them, FTRAN took ~30% longer and the
-// MIP lambda_080458 6% more cycles than C++. This is sound given the
+// btran_ft) skip bounds checks: with them, FTRAN took ~30% longer and a
+// MIP of the private suite 6% more cycles than C++. This is sound given the
 // invariant documented on HFactor, plus O(1) length checks on entry.
 
 /// The entries [start, max(start, end)) of a factor column (while

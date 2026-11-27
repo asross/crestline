@@ -43,7 +43,7 @@ EASY = ('air05 app1-1 beasleyC3 binkar10_1 dano3_3 decomp2 drayage-100-23 drayag
 # (top level only: the subdirectories hold emps-compressed files)
 MITTELMANN = ('datt256_lp.mps graph40-40.mps qap15.mps woodlands09.mps scpm1.mps neos-3025225.mps neos-5251015.mps '
               'rmine15.mps Primal2_1000.mps').split()  # L1_sixm250obs: fixed-format MPS, HiGHS cannot read it
-# HiGHS's LOGLINE (bench/dispatch.py): BestSol column and time
+# HiGHS's LOGLINE (bench/paired.py): BestSol column and time
 LOGLINE = re.compile(r'^ ?[A-Za-z ]?\s+\d+\s+\d+\s+\d+\s+[\d.]+%\s+\S+\s+(\S+)\s+.*\s([\d.]+)s$')
 CBCSOL = re.compile(r'^Cbc0012I Integer solution of (\S+) found .*\(([\d.]+) seconds\)')
 
