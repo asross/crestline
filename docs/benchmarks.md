@@ -230,7 +230,19 @@ Triage:
   has a negative coefficient and had the sign of its objective term
   wrong: keys 1784 and 536, which change only through the heuristic's
   incumbent and stay doubtful in 1.16.0, which gives 172.79 on 536 with
-  the heuristic off). These three are not in crest yet.
+  the heuristic off). Crest follows none of the three yet. Each of the
+  first two was applied alone, to crest and to HiGHS 1.15.1 (the same
+  answers), and all 4000 random solves were repeated. The `colPresolve`
+  change turns 11 solves from infeasible to optimal and 10 from a valid
+  optimum to infeasible or the time limit (keys 232, 718, 850, 1161,
+  1359, 1966: the same hazard met elsewhere, on four of them in 1.16.0
+  too), so it moves the weakness rather than removing it. PR #3332 alone
+  repairs key 1730 and takes key 112 to the references' value, but gives
+  3431.05 on key 782 where both releases find 3278.11: HiGHS at the merge
+  of #3332 still finds 3278.11, so on 1.15.1's code the fix lacks
+  something else made between the releases (PRs #3270 and #3437 touch
+  the same bookkeeping; not isolated yet). PR #3310 changes a heuristic
+  and needs its own measurement.
 - perturbed private: none.
 
 ## Baseline
